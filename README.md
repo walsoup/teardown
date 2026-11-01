@@ -7,8 +7,8 @@ Being built for the Meta Global AI Developer Hackathon (Oct 27 - Nov 4, 2026, In
 ## How it works
 
 1. `ingest` pulls the audio track (for transcription) and probes the clip with ffmpeg.
-2. Muse Voice Transcribe turns the audio into a transcript.
-3. Muse Spark watches the clip plus the transcript, picks 6-8 clean keyframes, and names the part and action in each.
+2. Muse Voice Transcribe turns the audio into a TIMED transcript: the endpoint returns no timestamps, so the audio is transcribed in 30-second windows and each window carries its known offset.
+3. Muse Spark watches the clip plus the timed transcript and plans the guide steps, anchoring every step to a verbatim narration quote. Spark cannot reliably judge time from video alone, so the plan is then verified mechanically: each anchor quote must appear in the transcript window the step claims, or it is re-anchored or dropped.
 4. SAM 3.1 (via the Meta Model API) segments the named part on each keyframe.
 5. An OpenCV pass draws the guide look: part outlines, dimmed background, numbered steps, 2x zoom insets.
 6. Output is a static guide page (`output/guide.html`) that scrolls like a real repair manual.
@@ -69,9 +69,25 @@ that seek the video, plus a print-PDF export. Standard library only.
 
 ## Status
 
-Long-video run on a 19-minute laptop disassembly: 28 ordered steps with tools
-and timestamps spanning the full disassembly, audio transcribed in chunks under
-the ASR cap, guide page and PDF export rendered. Part highlighting is
-fail-closed: only direct segmentation matches are drawn (1/28 on that
-low-resolution footage); wrong-object matches are dropped rather than shown.
-Small parts and low-resolution frames remain the weak spot.
+Long-video run on a 19-minute laptop disassembly, current pipeline: 23 ordered
+steps with tools, fasteners, connectors and cautions spanning the full
+disassembly, every step timestamp verified against the timed transcript
+(23/23 anchor quotes found in their claimed windows) and every step frame
+manually audited against the on-screen action state. Timestamps are
+approximate (plus/minus 30s windows) and are labeled as such in the guide and
+PDF. Part highlighting is fail-closed: only direct segmentation matches are
+drawn; wrong-object matches are dropped rather than shown. Small parts and
+low-resolution frames remain the weak spot.
+
+The web app serves video with HTTP Range support (206 responses) so the
+player's tap-to-seek works; verified with a real browser seek, not just
+handler presence.
+
+### Superseded results
+
+Earlier long-video plans (a 28-step and a 24-step version) were built from an
+UNTIMED transcript. Spark had no source of truth for time and allocated step
+timestamps across the duration instead of deriving them from the footage -
+review caught frames that no longer matched their step's action (for example
+a battery step framed after the panels were already off). Any coverage or
+accuracy claims based on those runs are superseded by the verified run above.

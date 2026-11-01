@@ -23,6 +23,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="teardown", description=__doc__)
     parser.add_argument("video", help="repair/disassembly clip (30-90 s)")
     parser.add_argument("--out", default="output", help="output directory")
+    parser.add_argument("--attribution", default=None,
+                        help="source footage credit line shown in the guide footer")
     parser.add_argument("--mock", action="store_true",
                         help="no API calls: canned steps + synthetic masks")
     args = parser.parse_args()
@@ -73,7 +75,8 @@ def main() -> None:
             render.annotate(frame, hit["bounds"], hit["mask"], i + 1, out_img)
             images.append(out_img)
 
-    page = guide.build_guide(plan, images, os.path.join(args.out, "guide.html"))
+    page = guide.build_guide(plan, images, os.path.join(args.out, "guide.html"),
+                             source_attribution=args.attribution)
     print(f"guide: {page}")
 
 

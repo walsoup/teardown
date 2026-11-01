@@ -21,7 +21,7 @@ PROMPT = """You are planning an illustrated, iFixit-style repair guide from a di
 Transcript of the narration (may be empty):
 \"\"\"{transcript}\"\"\"
 
-Watch the video and pick 6-8 key moments that would make good guide steps: the moments where a part is removed, disconnected, or installed.
+Watch the ENTIRE video from start to finish and turn every distinct action into a guide step: each group of screws, each part removed, disconnected, opened, cleaned, or installed. A full disassembly typically needs 15-40 steps; do not stop early or summarize ranges - the final step must come from near the end of the video.
 
 Return ONLY JSON (no markdown fences) in exactly this shape:
 {{
@@ -31,7 +31,8 @@ Return ONLY JSON (no markdown fences) in exactly this shape:
       "t": <time in seconds, number>,
       "part": "<short concrete noun phrase for the ONE main part visible at this moment, e.g. 'battery', 'logic board', 'display cable' - this is sent to a segmentation model, so keep it visual and concrete>",
       "title": "<short step title, e.g. 'Remove the battery'>",
-      "instruction": "<one sentence telling the reader what to do>"
+      "instruction": "<one or two sentences telling the reader exactly what to do>",
+      "tool": "<the tool used in this step, e.g. 'Phillips #1 screwdriver', 'plastic opening tool', or 'fingers'>"
     }}
   ]
 }}
@@ -50,6 +51,7 @@ def plan_steps(api: MetaApi, video_file_id: str, transcript: str, duration: floa
             {"type": "input_text", "text": PROMPT.format(transcript=transcript or "(no narration)", duration=duration)},
             {"type": "input_file", "file_id": video_file_id},
         ],
+        max_output_tokens=16000,
     )
     return parse_steps(text, duration)
 
@@ -67,6 +69,7 @@ def parse_steps(text: str, duration: float) -> dict:
                 "part": str(s["part"]),
                 "title": str(s["title"]),
                 "instruction": str(s["instruction"]),
+                "tool": str(s.get("tool", "")),
             }
         )
     steps.sort(key=lambda s: s["t"])

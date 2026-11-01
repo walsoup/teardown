@@ -21,7 +21,7 @@ from . import ingest, render, guide
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="teardown", description=__doc__)
-    parser.add_argument("video", help="repair/disassembly clip (30-90 s)")
+    parser.add_argument("video", help="repair/disassembly video; long videos supported via chunked audio transcription (tested up to ~20 min)")
     parser.add_argument("--out", default="output", help="output directory")
     parser.add_argument("--attribution", default=None,
                         help="source footage credit line shown in the guide footer")

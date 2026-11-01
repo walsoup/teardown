@@ -10,7 +10,11 @@ from __future__ import annotations
 import json
 import re
 
+import os
+
 from .meta_api import MetaApi
+
+SPARK_MODEL = os.environ.get("TEARDOWN_SPARK_MODEL", "muse-spark-1.3")
 
 PROMPT = """You are planning an illustrated, iFixit-style repair guide from a disassembly video.
 
@@ -41,7 +45,7 @@ Rules:
 
 def plan_steps(api: MetaApi, video_file_id: str, transcript: str, duration: float) -> dict:
     text = api.respond(
-        "muse-spark-1.3",
+        SPARK_MODEL,
         [
             {"type": "input_text", "text": PROMPT.format(transcript=transcript or "(no narration)", duration=duration)},
             {"type": "input_file", "file_id": video_file_id},

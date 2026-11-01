@@ -1,10 +1,10 @@
 # teardown
 
-Upload a video of someone disassembling a device (an iMac, a phone, whatever) and get back a step-by-step visual repair guide: a clean keyframe per step, every part outlined and labeled, in the style of an iFixit guide.
+A planned tool: upload a video of someone disassembling a device (an iMac, a phone, whatever) and get back a step-by-step visual repair guide - a clean keyframe per step, every part outlined and labeled, in the style of an iFixit guide.
 
-Built for the Meta Global AI Developer Hackathon (Oct 27 - Nov 4, 2026, Indie track).
+Being built for the Meta Global AI Developer Hackathon (Oct 27 - Nov 4, 2026, Indie track). **This repo currently holds the build plan only. No code yet.**
 
-## How it works
+## How it will work
 
 1. Upload a short repair clip (30-90 seconds).
 2. Muse Voice Transcribe turns the audio into a transcript.
@@ -21,4 +21,4 @@ Keyframe-first is the whole trick: segmenting 6-8 frames instead of the full vid
 
 ## Status
 
-Early work in progress - nothing runnable yet. Feedback welcome.
+Planning stage. Feedback on the plan welcome.

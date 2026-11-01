@@ -16,7 +16,7 @@ import numpy as np
 from .meta_api import MetaApi
 
 
-def segment_part(api: MetaApi, frame_png: str, part: str) -> dict | None:
+def segment_part(api: MetaApi, frame_png: str, part: str, allow_retry: bool = False) -> dict | None:
     """Return {bounds, mask, confidence, prompt} for the best match, or None.
 
     bounds is (left, top, right, bottom) in source-frame pixels, from the
@@ -28,7 +28,11 @@ def segment_part(api: MetaApi, frame_png: str, part: str) -> dict | None:
     weaker or looser match is never silently presented as the original part.
     """
     hit = _segment_once(api, frame_png, part)
-    if hit is None and " " in part.strip():
+    # Fail closed: a loose-noun retry too often lands on the wrong instance of
+    # the noun (a table cable for "display cable"), and a confident wrong
+    # highlight misleads more than no highlight. Retry stays available for
+    # experiments via allow_retry, but the pipeline default is direct-only.
+    if hit is None and allow_retry and " " in part.strip():
         simple = part.strip().split()[-1]
         if simple != part.strip():
             hit = _segment_once(api, frame_png, simple)

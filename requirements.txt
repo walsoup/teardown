@@ -1,0 +1,4 @@
+requests>=2.31
+numpy>=1.26
+opencv-python-headless>=4.9
+meta_sam_parser>=0.1

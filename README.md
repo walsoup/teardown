@@ -41,6 +41,23 @@ with `--attribution`. Generated guides are auto-produced demo output, **not** va
 repair instructions - the page says so in a banner. Verify against the manufacturer's
 service documentation before attempting any repair.
 
+## Tested findings (Nov 1, 2026)
+
+Small-sample results from development runs; treat as orientation, not benchmarks:
+
+- Real disassembly clip (90s, narrated): full pipeline OK. Spark planned 7 steps;
+  SAM segmented 5/7 parts (battery 0.85-0.91 confidence); two small parts
+  ("dust filter", "battery connector") returned zero matches and fell back to
+  clean frames. On zero match for a multi-word part, SAM is re-queried once with
+  the final noun; a retry match is marked `retried=True` with the actual prompt.
+- Drawn-animation synthetic clip (flat colors): Spark planned correct steps with
+  and without caption text (one clip each), SAM returned zero matches on all
+  frames tried - drawn graphics appear to be a hard input for it.
+- One AI-generated photoreal still (muse-image-1.0): SAM matched "battery" at
+  0.84, missed "battery connector" even after the simplified-noun retry.
+- `scripts/generate_synth.py` makes the synthetic test clip (needs opencv-python
+  and ffmpeg).
+
 ## Status
 
 Pipeline verified end-to-end against the live Meta Model API (transcribe, Spark planning,

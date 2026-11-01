@@ -89,7 +89,18 @@ class MetaApi:
             yield event
 
     def transcribe(self, wav_path: str) -> str:
-        """Transcribe a WAV file (max 10 min / 32 MB) with Muse Voice Transcribe."""
+        """Transcribe a WAV file with Muse Voice Transcribe.
+
+        The endpoint caps requests at 10 min / 32 MB, so longer audio is
+        split into 8-minute chunks (ffmpeg segment muxer, lossless) and the
+        transcripts are joined in order.
+        """
+        chunks = _chunk_wav(wav_path)
+        if len(chunks) > 1:
+            return " ".join(self._transcribe_chunk(c) for c in chunks)
+        return self._transcribe_chunk(wav_path)
+
+    def _transcribe_chunk(self, wav_path: str) -> str:
         with open(wav_path, "rb") as audio:
             r = self.session.post(
                 f"{BASE_URL}/asr/transcribe",
@@ -120,6 +131,30 @@ class MetaApi:
             if "turns" in body:
                 return " ".join(t.get("text", "") for t in body["turns"])
         return r.text
+
+
+def _chunk_wav(wav_path: str) -> list[str]:
+    """Split into <=8-minute WAV parts; returns [wav_path] when already short."""
+    import subprocess
+
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", wav_path],
+        capture_output=True, text=True)
+    try:
+        duration = float(out.stdout.strip())
+    except ValueError:
+        return [wav_path]
+    if duration <= 8 * 60:
+        return [wav_path]
+    pattern = wav_path.rsplit(".", 1)[0] + ".part%02d.wav"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", wav_path,
+         "-f", "segment", "-segment_time", str(8 * 60), "-c", "copy", pattern],
+        check=True)
+    import glob
+
+    return sorted(glob.glob(pattern.replace("%02d", "*")))
 
 
 def _output_text(response: dict) -> str:

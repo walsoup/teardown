@@ -17,11 +17,27 @@ from .meta_api import MetaApi
 
 
 def segment_part(api: MetaApi, frame_png: str, part: str) -> dict | None:
-    """Return {bounds, mask, confidence} for the best match, or None.
+    """Return {bounds, mask, confidence, prompt} for the best match, or None.
 
     bounds is (left, top, right, bottom) in source-frame pixels, from the
     mask record itself. The mask raster is (bottom-top) x (right-left).
+
+    On a zero-match for a multi-word part name, retries once with the final
+    noun (e.g. "battery connector" -> "connector"). A retry match is marked
+    retried=True with prompt set to the simplified noun actually used, so a
+    weaker or looser match is never silently presented as the original part.
     """
+    hit = _segment_once(api, frame_png, part)
+    if hit is None and " " in part.strip():
+        simple = part.strip().split()[-1]
+        if simple != part.strip():
+            hit = _segment_once(api, frame_png, simple)
+            if hit is not None:
+                hit["retried"] = True
+    return hit
+
+
+def _segment_once(api: MetaApi, frame_png: str, part: str) -> dict | None:
     with open(frame_png, "rb") as fh:
         data_url = "data:image/png;base64," + base64.b64encode(fh.read()).decode()
 
@@ -53,6 +69,8 @@ def segment_part(api: MetaApi, frame_png: str, part: str) -> dict | None:
         "bounds": (int(b.left), int(b.top), int(b.right), int(b.bottom)),
         "mask": raster,
         "confidence": conf(best),
+        "prompt": part,
+        "retried": False,
     }
 
 

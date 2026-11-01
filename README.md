@@ -58,8 +58,20 @@ Small-sample results from development runs; treat as orientation, not benchmarks
 - `scripts/generate_synth.py` makes the synthetic test clip (needs opencv-python
   and ffmpeg).
 
+## Web app
+
+`web/app.py` serves the pipeline as a small site: upload an mp4 or paste a
+YouTube link, watch it process, then read the guide with per-step timestamps
+that seek the video, plus a print-PDF export. Standard library only.
+
+    export MODEL_API_KEY=...
+    python web/app.py            # http://127.0.0.1:8377
+
 ## Status
 
-Pipeline verified end-to-end against the live Meta Model API (transcribe, Spark planning,
-SAM 3.1 segmentation, annotated render, guide page). First real run: 5/7 steps segmented
-on a 90-second disassembly clip, small-part misses fall back to clean frames.
+Long-video run on a 19-minute laptop disassembly: 28 ordered steps with tools
+and timestamps spanning the full disassembly, audio transcribed in chunks under
+the ASR cap, guide page and PDF export rendered. Part highlighting is
+fail-closed: only direct segmentation matches are drawn (1/28 on that
+low-resolution footage); wrong-object matches are dropped rather than shown.
+Small parts and low-resolution frames remain the weak spot.

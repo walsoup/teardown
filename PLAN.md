@@ -1,23 +1,40 @@
 # teardown - build plan
 
 Meta Global AI Developer Hackathon 2026. Indie track, theme "Build for Your World".
-Submissions due **Nov 4, 9:00 PM ET**. Judging: Impact 30%, creative use of Meta tooling 25%, technical depth 20%, live demo 25%.
+Facts below verified against the live participant guide (cerebralvalley.ai/e/meta-ai-developer-hackathon/details) on Nov 1, 2026.
 
 ## The one-sentence version
 
 Repair footage in, illustrated step-by-step repair guide out.
 
+## Deadline and submission
+
+- Submissions due **Wed Nov 4, 9:00 PM EST** via the Cerebral Valley platform - that is **Thu Nov 5, 2:00 AM Morocco time**. Late submissions are not considered.
+- Submission needs: this repo **public**, a **3-minute demo video**, and everyone who worked on it listed. One submission per team.
+- Hackathon rules require the repo to be public at submission. The repo is private for now; flipping visibility is the owner's call, do it before submitting.
+- New work only: the demo and submission must clearly show what was built during the event (Oct 27 - Nov 4).
+
+## Judging (stage-two rubric, 0-10 scale)
+
+- Impact 30% - real-world potential, fit to a problem statement.
+- Use of Meta AI Tooling 25% - creative use beyond a basic integration.
+- Technical Depth & Execution 20%.
+- Demo 25% - working, impressive, the video is genuinely cool to watch.
+
+Stage one is pass/fail: project must fit a theme and actually use the Meta Model API and/or Meta open-weight models.
+
 ## Why this fits
 
-- It needs real Meta model capability: video understanding (Muse Spark) plus segmentation (SAM 3.1 via Meta Model API), each doing something the other can't. Not a wrapper a regular coding agent could fake.
-- The participant guide warns "simple image analyzers" don't count. This clears that bar as long as the demo actually produces a guide: real keyframes, real segmented parts, real annotated steps.
-- Footage must be owned or properly licensed. Shoot a short clip for this or use footage with clear permission.
+- It needs real Meta model capability: transcription (Muse Voice Transcribe), video understanding (Muse Spark), and segmentation (SAM 3.1 via Meta Model API), each doing something the others can't. Not a wrapper a regular coding agent could fake.
+- The guide's anti-project list includes "Simple Image Analyzers". This clears that bar as long as the demo actually produces a guide: real keyframes, real segmented parts, real annotated steps.
+- Disqualification rule: no code, data, or assets you don't have rights to. Shoot a short repair clip or use footage with clear permission.
 
 ## Pipeline
 
 | Stage | Tool | Output |
 | --- | --- | --- |
-| Ingest | ffmpeg | frames + audio/transcript |
+| Ingest | ffmpeg | frames + audio |
+| Transcript | Muse Voice Transcribe | step narration text |
 | Step & keyframe selection | Muse Spark | 6-8 keyframes, part names, one line of instruction per step |
 | Segmentation | SAM 3.1 (Meta Model API) | masks for the named parts on each keyframe |
 | Guide rendering | OpenCV | outlines, dimmed background, numbered steps, 2x zoom insets |
@@ -35,15 +52,15 @@ Stretch, only if ahead: tools list per guide, difficulty/time estimate, PDF expo
 
 - **Nov 1**: repo + this plan. Pick test footage. Spike: Muse Spark returns structured keyframe picks (timestamps, part names, step text) for one clip.
 - **Nov 2**: SAM 3.1 masks on the chosen keyframes. OpenCV overlay renderer. First ugly-but-real full guide.
-- **Nov 3**: polish the rendering and guide page, run a second clip, record the demo.
-- **Nov 4**: buffer for breakage. Submit before 9 PM ET.
+- **Nov 3**: polish the rendering and guide page, run a second clip, record the 3-minute demo video.
+- **Nov 4**: buffer for breakage. Flip the repo public, submit on the CV platform before 9 PM EST.
 
 ## Cost guardrails
 
-- Around $148 of Meta API credits are on the account.
-- Meta's spend limit only sends an email alert; it is not a hard cap. The keyframe-first design keeps usage small, but check the dashboard before any heavy batch runs.
+- Around $148 of the $150 Meta API credits remained as of Oct 28 (dashboard usage display lags up to an hour).
+- Using the API at all requires a card on the Meta developer account, and the "Spend Limit" on the Billing page is a notification, not a hard cap. The keyframe-first design keeps usage small; check the Billing page before any heavy batch runs.
 
 ## Open questions
 
-- Submission mechanics on Cerebral Valley (form, repo link, demo video?) - confirm on the event dashboard before Nov 4.
-- Teammate eligibility: a support email about adding a friend is still unanswered; solo is the default until it lands.
+- Teammate eligibility: a support email about adding a friend is still unanswered; solo is the default until it lands. Teams cap at 4, everyone must be individually accepted.
+- Repo visibility flip and license choice are both still open - owner's call before submission.

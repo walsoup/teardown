@@ -153,61 +153,807 @@ p {{ font-size: 11.5px; line-height: 1.5; margin-bottom: 1.5mm; }}
 
 
 CSS = """
-:root{--paper:#f7f4ec;--ink:#26261f;--green:#2f4632;--terra:#b3562e;--hair:#d9d4c5;--mut:#8a8a7c;}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Georgia,serif;background:var(--paper);color:var(--ink);max-width:1100px;margin:0 auto;padding:36px 20px}
-h1{color:var(--green);font-size:30px}h1 .dot{color:var(--terra)}
-a{color:var(--green)}
-.mut{color:var(--mut);font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5}
-.card{border:1px solid var(--hair);border-radius:10px;padding:22px;margin:16px 0;background:#fffdf8}
-.drop{border:1.5px dashed var(--hair);border-radius:10px;padding:26px;text-align:center;color:var(--mut);
-  font-family:Helvetica,Arial,sans-serif;font-size:14px;margin-bottom:14px}
-.drop input{display:none}
-.drop label{cursor:pointer;display:block}
-.drop b{color:var(--green)}
-.or{text-align:center;color:var(--mut);font-family:Helvetica,Arial,sans-serif;font-size:12px;margin:12px 0}
-input[type=text]{width:100%;padding:11px 16px;border:1px solid var(--hair);border-radius:999px;font-size:14px;background:#fff;outline:none}
-input[type=text]:focus{border-color:var(--green)}
-.pill{display:inline-block;border:1px solid var(--green);color:var(--green);border-radius:999px;
-  padding:9px 22px;font-family:Helvetica,Arial,sans-serif;font-size:13px;background:none;cursor:pointer;text-decoration:none}
-.pill.solid{background:var(--green);color:#fff}
-.err{border:1px solid var(--terra);border-radius:8px;padding:10px 14px;color:var(--terra);
-  font-family:Helvetica,Arial,sans-serif;font-size:13px;margin:12px 0}
-.banner{border:1px solid var(--hair);border-left:3px solid var(--terra);padding:10px 14px;font-size:12px;color:var(--mut);margin:14px 0;line-height:1.5}
-.layout{display:grid;grid-template-columns:1fr 400px;gap:28px;margin-top:18px;align-items:start}
-.vid{position:sticky;top:20px}
-video{width:100%;border:1px solid var(--hair);background:#000;display:block}
-.step{border-top:1px solid var(--hair);padding:16px 4px;cursor:pointer}
-.step:hover{background:#f1ede2}
-.step .n{display:inline-block;width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;
-  font-family:Helvetica,Arial,sans-serif;font-size:11px;text-align:center;line-height:24px;margin-right:8px}
-.step h3{display:inline;font-size:15px;color:var(--green)}
-.step .m{font-family:Helvetica,Arial,sans-serif;font-size:11px;color:var(--mut);margin:4px 0 0 32px}
-.step img{width:100%;margin-top:10px;border:1px solid var(--hair)}
-.step p{font-size:13.5px;line-height:1.55;margin:8px 0 0 32px}
-.step .caution{border-left:3px solid var(--terra);background:#faf3ee;padding:6px 10px;font-size:12px;color:#7c3a1e;margin:8px 0 0 32px}
-@media (max-width: 800px){
-  body{padding:22px 14px}
-  .layout{display:flex;flex-direction:column;gap:14px}
-  .vid{order:-1;position:sticky;top:0;z-index:5;background:var(--paper, #f6f3ec);padding:8px 0}
-  .step h3{font-size:14px}
+:root {
+  --paper: #f6f1e7;
+  --paper-card: #fdfbf7;
+  --paper-hover: #f1ebd9;
+  --paper-active: #ede5d1;
+  --ink: #2f4632;
+  --body-ink: #26261f;
+  --green: #2f4632;
+  --green-hover: #243827;
+  --terra: #b3562e;
+  --hair: #ddd6c3;
+  --hair-dark: #c8c0ad;
+  --mut: #707567;
+  --font-serif: Georgia, serif;
+  --font-sans: Helvetica, Arial, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-serif);
+  background: var(--paper);
+  color: var(--body-ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--green);
+}
+
+.mut {
+  color: var(--mut);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dot {
+  color: var(--terra);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--green);
+  color: var(--green);
+  border-radius: 999px;
+  padding: 9px 22px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: bold;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.pill:hover {
+  background: var(--paper-hover);
+}
+
+.pill.solid {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+.pill.solid:hover {
+  background: var(--green-hover);
+}
+
+.card {
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  padding: 22px;
+  margin: 16px 0;
+  background: var(--paper-card);
+}
+
+.err {
+  border: 1px solid var(--terra);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--terra);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  margin: 12px 0;
+  background: #fdf5f0;
+}
+
+.banner {
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--terra);
+  background: var(--paper-card);
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--mut);
+  line-height: 1.5;
+  border-radius: 4px;
+}
+
+.app-footer {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--mut);
+  text-align: center;
+}
+
+/* INDEX TEMPLATE STYLES */
+.index-container {
+  max-width: 640px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.index-header {
+  margin-bottom: 24px;
+}
+
+.index-title {
+  font-family: var(--font-serif);
+  font-size: 32px;
+  color: var(--green);
+  letter-spacing: -0.5px;
+  font-weight: normal;
+}
+
+.drop {
+  border: 1.5px dashed var(--hair);
+  border-radius: 8px;
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--mut);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  margin-bottom: 14px;
+  background: #faf6ee;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.drop:hover {
+  border-color: var(--green);
+}
+
+.drop input {
+  display: none;
+}
+
+.drop label {
+  cursor: pointer;
+  display: block;
+}
+
+.drop b {
+  color: var(--green);
+}
+
+.or {
+  text-align: center;
+  color: var(--mut);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  margin: 14px 0;
+}
+
+input[type=text] {
+  width: 100%;
+  padding: 11px 18px;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  color: var(--body-ink);
+}
+
+input[type=text]:focus {
+  border-color: var(--green);
+}
+
+.job-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  margin: 12px 0;
+}
+
+.index-footer {
+  margin-top: 40px;
+  padding-bottom: 24px;
+}
+
+/* GUIDE APP HEADER */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--paper);
+  gap: 16px;
+}
+
+.brand {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--green);
+  text-decoration: none;
+  letter-spacing: -0.5px;
+}
+
+.header-center {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.header-device {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--green);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.header-pdf {
+  padding: 6px 16px;
+  font-size: 12px;
+  background: var(--paper-card);
+  border-color: var(--hair);
+  flex-shrink: 0;
+}
+
+.header-pdf:hover {
+  border-color: var(--green);
+}
+
+.app-subbar {
+  background: #fbf7ee;
+  border-bottom: 1px solid var(--hair);
+  padding: 6px 16px;
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--mut);
+  letter-spacing: 0.15px;
+  line-height: 1.3;
+}
+
+/* GUIDE VIDEO & PROGRESS */
+.video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid var(--hair);
+  border-bottom: none;
+  overflow: hidden;
+  max-height: 38vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-frame video {
+  width: 100%;
+  height: 100%;
+  max-height: 38vh;
+  display: block;
+  object-fit: contain;
+  background: #000;
+}
+
+.video-loading {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--paper-card);
+  color: var(--mut);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity 0.2s ease;
+}
+
+.video-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 24px 20px;
+  background: #faf6ee;
+  color: var(--mut);
+  text-align: center;
+  gap: 4px;
+}
+
+.v-error-icon {
+  color: var(--terra);
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.v-error-msg {
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  color: var(--green);
+}
+
+.v-error-sub {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--mut);
+  max-width: 280px;
+  line-height: 1.4;
+}
+
+.progress-bar {
+  display: flex;
+  gap: 2px;
+  background: var(--hair);
+  height: 5px;
+  width: 100%;
+  border: 1px solid var(--hair);
+  border-top: none;
+}
+
+.progress-seg {
+  flex: 1;
+  height: 100%;
+  background: #e2dbcc;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.progress-seg.watched {
+  background: var(--green);
+}
+
+.progress-seg.active {
+  background: var(--terra);
+}
+
+/* FOCUSED STEP CARD */
+.step-card {
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  background: var(--paper-card);
+  padding: 20px;
+}
+
+.step-item {
+  display: none;
+}
+
+.step-item.active {
+  display: block;
+}
+
+.step-image-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #181917;
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.step-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.step-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.step-pill {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--green);
+  background: #ede6d4;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  padding: 3px 10px;
+  display: inline-block;
+}
+
+.step-title {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.25;
+  color: var(--green);
+  margin-bottom: 6px;
+  font-weight: normal;
+}
+
+.step-meta {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--mut);
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+.step-hl {
+  font-weight: bold;
+  color: var(--terra);
+}
+
+.step-desc {
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--body-ink);
+  margin-bottom: 14px;
+}
+
+.step-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.step-dt {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: #444a42;
+  background: #f4eee2;
+  padding: 6px 10px;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.step-dt b {
+  color: var(--green);
+}
+
+.step-caution {
+  border-left: 3px solid var(--terra);
+  background: #faf3ee;
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #7c3a1e;
+  margin-top: 10px;
+  border-radius: 0 4px 4px 0;
+}
+
+.caution-icon {
+  font-weight: bold;
+  margin-right: 4px;
+  color: var(--terra);
+}
+
+.step-nav {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--hair);
+}
+
+.nav-btn {
+  flex: 1;
+  padding: 12px 20px;
+  font-size: 14px;
+  min-height: 48px;
+}
+
+.nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ALL STEPS DISCLOSURE & RAIL */
+.steps-disclosure {
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--paper-card);
+}
+
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  background: #fbf7ee;
+  border-radius: 7px;
+  list-style: none;
+  gap: 12px;
+  user-select: none;
+}
+
+.disclosure-summary::-webkit-details-marker,
+.disclosure-summary::marker {
+  display: none;
+}
+
+.disclosure-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.disclosure-title {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--green);
+}
+
+.disclosure-count {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--mut);
+}
+
+.disclosure-toggle {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--green);
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+details[open] .disclosure-summary {
+  border-bottom: 1px solid var(--hair);
+  border-radius: 7px 7px 0 0;
+}
+
+.rail-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hair);
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.1s ease;
+  user-select: none;
+  outline: none;
+}
+
+.rail-row:last-child {
+  border-bottom: none;
+}
+
+.rail-row:hover {
+  background: var(--paper-hover);
+}
+
+.rail-row.active {
+  background: var(--paper-active);
+  border-left: 3px solid var(--terra);
+  padding-left: 11px;
+}
+
+.row-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rail-row.active .row-num {
+  background: var(--terra);
+}
+
+.row-thumb-wrap {
+  width: 58px;
+  aspect-ratio: 16 / 9;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  background: #181917;
+  flex-shrink: 0;
+}
+
+.row-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.row-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row-title {
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  color: var(--green);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-row.active .row-title {
+  font-weight: bold;
+}
+
+.row-meta {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--mut);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* RESPONSIVE LAYOUTS */
+@media (max-width: 899px) {
+  .layout-container {
+    padding: 0;
+  }
+  .layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .left-col, .right-col {
+    display: contents;
+  }
+  .player-pane {
+    order: 1;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--paper);
+    width: 100%;
+  }
+  .step-pane {
+    order: 2;
+    padding: 16px 14px 0 14px;
+  }
+  .disclosure-pane {
+    order: 3;
+    padding: 14px 14px 0 14px;
+  }
+  .notice-pane {
+    order: 4;
+    padding: 14px 14px 0 14px;
+  }
+  .footer-pane {
+    order: 5;
+    padding: 20px 14px 32px 14px;
+  }
+}
+
+@media (min-width: 900px) {
+  .layout-container {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 24px 28px 48px;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 460px 1fr;
+    gap: 36px;
+    align-items: start;
+  }
+  .left-col {
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 20px;
+    gap: 16px;
+  }
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+  .player-pane {
+    position: static;
+    width: 100%;
+  }
+  .step-card {
+    padding: 26px;
+  }
+  .step-title {
+    font-size: 26px;
+  }
+  .step-desc {
+    font-size: 15px;
+  }
+  .disclosure-pane {
+    margin-top: 0;
+  }
+  .steps-disclosure {
+    border: 1px solid var(--hair);
+    border-radius: 8px;
+    background: var(--paper-card);
+    overflow: hidden;
+  }
+  .disclosure-summary {
+    pointer-events: none;
+    cursor: default;
+    background: #f3edd9;
+    border-bottom: 1px solid var(--hair);
+    padding: 12px 16px;
+    border-radius: 7px 7px 0 0;
+  }
+  .disclosure-toggle {
+    display: none;
+  }
+  .rail-list {
+    max-height: calc(100vh - 380px);
+    min-height: 260px;
+    overflow-y: auto;
+  }
 }
 """
 
 INDEX = """<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>teardown</title><style>__CSS__</style>
 __REFRESH__</head><body>
-<h1>teardown<span class=dot>.</span></h1>
-<p class=mut>repair footage in, illustrated guide out</p>
-__ERROR__
-<div class=card>
-<form method=post action=/jobs enctype=multipart/form-data>
-<div class=drop><label for=f>drop a video here or <b>browse files</b><input id=f type=file name=video accept="video/mp4,video/quicktime,video/*"></label></div>
-<div class=or>or</div>
-<p><input type=text name=url placeholder="paste a youtube link"></p>
-<p style="margin-top:16px"><button class="pill solid" type=submit>build guide</button></p>
-</form></div>
-__JOBS__
+<div class="index-container">
+  <header class="index-header">
+    <h1 class="index-title">teardown<span class="dot">.</span></h1>
+    <p class="mut">repair footage in, illustrated guide out</p>
+  </header>
+  __ERROR__
+  <div class="card index-card">
+    <form method="post" action="/jobs" enctype="multipart/form-data">
+      <div class="drop">
+        <label for="f">drop a video here or <b>browse files</b>
+          <input id="f" type="file" name="video" accept="video/mp4,video/quicktime,video/*">
+        </label>
+      </div>
+      <div class="or">or</div>
+      <p><input type="text" name="url" placeholder="paste a youtube link"></p>
+      <p style="margin-top:16px"><button class="pill solid submit-pill" type="submit">build guide</button></p>
+    </form>
+  </div>
+  <div class="jobs-list">
+    __JOBS__
+  </div>
+  <footer class="index-footer">
+    <p class="app-footer">private test output - generated by teardown</p>
+  </footer>
+</div>
 <script>
 document.getElementById('f').addEventListener('change', function(){
   this.closest('.drop').querySelector('b').textContent = this.files[0] ? this.files[0].name : 'browse files';
@@ -217,16 +963,233 @@ document.getElementById('f').addEventListener('change', function(){
 
 GUIDE = """<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>__DEVICE__ - teardown</title><style>__CSS__</style></head><body>
-<h1>__DEVICE__<span class=dot>.</span></h1>
-<p class=mut>__NSTEPS__ steps &middot; tap a step to jump the video &middot; timestamps approximate (&plusmn;30s) &middot; <a href="/jobs/__JOB__/guide.pdf">download pdf</a></p>
-<div class=banner>Auto-generated demo output - not validated repair instructions. Highlights appear only where the segmentation matched the named part directly; other steps show the plain frame.</div>
-<div class=layout>
-<div>__STEPS__</div>
-<div class=vid><video id=v controls preload=metadata src="/jobs/__JOB__/video.mp4"></video></div>
-</div>
+<header class="app-header">
+  <div class="header-left">
+    <a href="/" class="brand">teardown<span class="dot">.</span></a>
+  </div>
+  <div class="header-center">
+    <span class="header-device">__DEVICE__</span>
+  </div>
+  <div class="header-right">
+    <a class="pill header-pdf" href="/jobs/__JOB__/guide.pdf">PDF</a>
+  </div>
+</header>
+<div class="app-subbar">Demo output - not validated repair instructions</div>
+
+<main class="layout-container">
+  <div class="layout">
+    <div class="left-col">
+      <div class="player-pane">
+        <div class="video-frame">
+          <video id="v" controls playsinline preload="metadata" poster="__POSTER__" src="/jobs/__JOB__/video.mp4"></video>
+          <div id="v-loading" class="video-loading" aria-live="polite">loading footage&hellip;</div>
+          <div id="v-error" class="video-error" style="display:none;" role="alert">
+            <span class="v-error-icon">&#9888;</span>
+            <p class="v-error-msg">Video footage unavailable</p>
+            <p class="v-error-sub">Use the illustrated repair steps below.</p>
+          </div>
+        </div>
+        <div class="progress-bar" id="progress-bar" aria-label="Step progress">
+          __PROGRESS__
+        </div>
+      </div>
+      <div class="disclosure-pane">
+        <details id="steps-disclosure" class="steps-disclosure">
+          <summary class="disclosure-summary">
+            <div class="disclosure-meta">
+              <span class="disclosure-title">All steps</span>
+              <span class="disclosure-count">__NSTEPS__ steps &middot; timestamps approximate (&plusmn;30s)</span>
+            </div>
+            <span class="disclosure-toggle">Show list ▾</span>
+          </summary>
+          <div class="rail-list" id="rail-list">
+            __RAIL__
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="right-col">
+      <div class="step-pane" id="step-pane">
+        <div class="step-card">
+          <div id="step-cards-container">
+            __STEPS__
+          </div>
+          <div class="step-nav">
+            <button type="button" class="pill nav-btn" id="prev-btn" onclick="prevStep()" disabled>&larr; Previous</button>
+            <button type="button" class="pill solid nav-btn" id="next-btn" onclick="nextStep()">Next &rarr;</button>
+          </div>
+        </div>
+      </div>
+      <div class="notice-pane">
+        <div class="banner">Auto-generated demo output - not validated repair instructions. Highlights appear only where the segmentation matched the named part directly; other steps show the plain frame.</div>
+      </div>
+      <footer class="footer-pane">
+        <p class="app-footer">private test output - generated by teardown</p>
+      </footer>
+    </div>
+  </div>
+</main>
+
 <script>
-const v=document.getElementById('v');
-function seek(t){v.currentTime=t;v.play();}
+const v = document.getElementById('v');
+const stepTimes = __STEPTIMES__;
+const totalSteps = stepTimes.length;
+let activeStep = 0;
+
+const prevBtn = document.getElementById('prev-btn');
+const nextBtn = document.getElementById('next-btn');
+const cardsContainer = document.getElementById('step-cards-container');
+const railList = document.getElementById('rail-list');
+const progressBar = document.getElementById('progress-bar');
+const disclosure = document.getElementById('steps-disclosure');
+const vLoading = document.getElementById('v-loading');
+const vErr = document.getElementById('v-error');
+
+function setStep(idx, andSeek) {
+  if (idx < 0) idx = 0;
+  if (idx >= totalSteps) idx = totalSteps - 1;
+  activeStep = idx;
+
+  if (cardsContainer) {
+    const cards = cardsContainer.children;
+    for (let i = 0; i < cards.length; i++) {
+      cards[i].classList.toggle('active', i === idx);
+    }
+  }
+
+  if (prevBtn) prevBtn.disabled = (idx === 0);
+  if (nextBtn) nextBtn.disabled = (idx === totalSteps - 1);
+
+  if (progressBar) {
+    const segs = progressBar.children;
+    for (let i = 0; i < segs.length; i++) {
+      segs[i].classList.remove('watched', 'active');
+      if (i < idx) {
+        segs[i].classList.add('watched');
+      } else if (i === idx) {
+        segs[i].classList.add('active');
+      }
+    }
+  }
+
+  if (railList) {
+    const rows = railList.children;
+    for (let i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', i === idx);
+    }
+    if (rows[idx]) {
+      rows[idx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  if (andSeek && v) {
+    v.currentTime = stepTimes[idx];
+    v.play().catch(function(){});
+  }
+}
+
+function selectStep(idx) {
+  setStep(idx, true);
+  if (disclosure && window.innerWidth < 900) {
+    disclosure.open = false;
+    const pane = document.getElementById('step-pane');
+    if (pane) {
+      pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+}
+
+function prevStep() {
+  if (activeStep > 0) {
+    selectStep(activeStep - 1);
+  }
+}
+
+function nextStep() {
+  if (activeStep < totalSteps - 1) {
+    selectStep(activeStep + 1);
+  }
+}
+
+function seek(t) {
+  if (v) {
+    v.currentTime = t;
+    v.play().catch(function(){});
+  }
+}
+
+if (v) {
+  if (v.readyState >= 2 && vLoading) {
+    vLoading.style.display = 'none';
+  }
+  if (vLoading) {
+    v.addEventListener('loadeddata', function() { vLoading.style.display = 'none'; });
+    v.addEventListener('canplay', function() { vLoading.style.display = 'none'; });
+    v.addEventListener('playing', function() { vLoading.style.display = 'none'; });
+    v.addEventListener('waiting', function() { vLoading.style.display = 'block'; });
+  }
+  v.addEventListener('error', function() {
+    if (vLoading) vLoading.style.display = 'none';
+    v.style.display = 'none';
+    if (vErr) vErr.style.display = 'flex';
+  });
+  v.addEventListener('timeupdate', function() {
+    const ct = v.currentTime;
+    let idx = 0;
+    for (let i = 0; i < stepTimes.length; i++) {
+      if (ct >= stepTimes[i]) {
+        idx = i;
+      } else {
+        break;
+      }
+    }
+    if (idx !== activeStep) {
+      setStep(idx, false);
+    }
+  });
+}
+
+if (progressBar) {
+  const segs = progressBar.children;
+  for (let i = 0; i < segs.length; i++) {
+    (function(index) {
+      segs[index].addEventListener('click', function() {
+        selectStep(index);
+      });
+    })(i);
+  }
+}
+
+function syncDisclosure() {
+  if (disclosure) {
+    if (window.innerWidth >= 900) {
+      disclosure.open = true;
+    }
+    const toggleLbl = disclosure.querySelector('.disclosure-toggle');
+    if (toggleLbl && window.innerWidth < 900) {
+      toggleLbl.textContent = disclosure.open ? 'Hide list ▴' : 'Show list ▾';
+    }
+  }
+}
+
+if (disclosure) {
+  disclosure.addEventListener('toggle', function() {
+    const toggleLbl = disclosure.querySelector('.disclosure-toggle');
+    if (toggleLbl && window.innerWidth < 900) {
+      toggleLbl.textContent = disclosure.open ? 'Hide list ▴' : 'Show list ▾';
+    }
+  });
+}
+
+window.addEventListener('resize', syncDisclosure);
+syncDisclosure();
+
+document.addEventListener('keydown', function(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowLeft') prevStep();
+  if (e.key === 'ArrowRight') nextStep();
+});
 </script>
 </body></html>"""
 
@@ -235,13 +1198,13 @@ def job_card(j):
     st = JOBS[j]
     esc = html_mod.escape
     if st["status"] == "done":
-        return (f'<div class=card><a class=pill href="/jobs/{j}">{esc(st.get("device") or j)}</a>'
-                f'<span class=mut> {st.get("steps", "?")} steps</span></div>')
+        return (f'<div class="card job-card"><a class="pill" href="/jobs/{j}">{esc(st.get("device") or j)}</a>'
+                f'<span class="mut"> {st.get("steps", "?")} steps</span></div>')
     if st["status"] == "processing":
-        return f'<div class=card><span class=mut>processing&hellip; {esc(st.get("stage", ""))}</span></div>'
+        return f'<div class="card job-card"><span class="mut">processing&hellip; {esc(st.get("stage", ""))}</span></div>'
     if st["status"] == "error":
-        return f'<div class=card><div class=err>failed: {esc(st.get("error", "unknown error"))}</div></div>'
-    return f'<div class=card><span class=mut>queued</span></div>'
+        return f'<div class="card job-card"><div class="err">failed: {esc(st.get("error", "unknown error"))}</div></div>'
+    return f'<div class="card job-card"><span class="mut">queued</span></div>'
 
 
 class H(BaseHTTPRequestHandler):
@@ -311,22 +1274,75 @@ class H(BaseHTTPRequestHandler):
             if not plan:
                 self._send('<p class=mut>guide not ready yet - <a href=/>back to jobs</a></p>', status=404)
                 return
+            n_steps = len(plan["steps"])
+
             def step_html(i, s):
                 esc = html_mod.escape
-                det = ""
+                det = []
                 if s.get("fasteners"):
-                    det += f'<div class=m><b>Fasteners:</b> {esc(s["fasteners"])}</div>'
+                    det.append(f'<div class="step-dt"><b>Fasteners:</b> {esc(s["fasteners"])}</div>')
                 if s.get("connectors"):
-                    det += f'<div class=m><b>Connectors:</b> {esc(s["connectors"])}</div>'
-                caut = f'<div class=caution>{esc(s["caution"])}</div>' if s.get("caution") else ""
-                return (f'<div class=step onclick=seek({s["t"]})><span class=n>{i + 1}</span><h3>{esc(s["title"])}</h3>'
-                        f'<div class=m>~{int(s["t"] // 60)}:{int(s["t"] % 60):02d} &middot; {esc(s.get("tool") or "fingers")}'
-                        f'{" &middot; <b>part highlighted</b>" if s.get("segmented") else ""}</div>'
-                        f'<img loading=lazy src="/jobs/{job}/{s["image"]}"><p>{esc(s["instruction"])}</p>{det}{caut}</div>')
+                    det.append(f'<div class="step-dt"><b>Connectors:</b> {esc(s["connectors"])}</div>')
+                det_html = f'<div class="step-details">{"".join(det)}</div>' if det else ""
+                caut_html = f'<div class="step-caution"><span class="caution-icon">&#9650;</span> {esc(s["caution"])}</div>' if s.get("caution") else ""
+                hl = ' &middot; <b class="step-hl">part highlighted</b>' if s.get("segmented") else ""
+                active_class = " active" if i == 0 else ""
+                ts_str = f"~{int(s['t'] // 60)}:{int(s['t'] % 60):02d}"
+                tool_str = esc(s.get("tool") or "fingers")
+                return (
+                    f'<div class="step-item{active_class}" data-index="{i}" data-t="{s["t"]}">'
+                    f'  <div class="step-image-wrap">'
+                    f'    <img loading="lazy" class="step-img" src="/jobs/{job}/{s["image"]}" alt="{esc(s["title"])}">'
+                    f'  </div>'
+                    f'  <div class="step-header-row">'
+                    f'    <span class="step-pill">Step {i + 1} of {n_steps}</span>'
+                    f'  </div>'
+                    f'  <h2 class="step-title">{esc(s["title"])}</h2>'
+                    f'  <div class="step-meta">{ts_str} &middot; {tool_str}{hl}</div>'
+                    f'  <p class="step-desc">{esc(s["instruction"])}</p>'
+                    f'  {det_html}'
+                    f'  {caut_html}'
+                    f'</div>'
+                )
+
+            def rail_row_html(i, s):
+                esc = html_mod.escape
+                active_class = " active" if i == 0 else ""
+                ts_str = f"~{int(s['t'] // 60)}:{int(s['t'] % 60):02d}"
+                tool_str = esc(s.get("tool") or "fingers")
+                return (
+                    f'<div class="rail-row{active_class}" id="rail-row-{i}" data-index="{i}" role="button" tabindex="0" onclick="selectStep({i})">'
+                    f'  <span class="row-num">{i + 1}</span>'
+                    f'  <div class="row-thumb-wrap">'
+                    f'    <img loading="lazy" class="row-thumb" src="/jobs/{job}/{s["image"]}" alt="{esc(s["title"])}">'
+                    f'  </div>'
+                    f'  <div class="row-content">'
+                    f'    <div class="row-title">{esc(s["title"])}</div>'
+                    f'    <div class="row-meta">{ts_str} &middot; {tool_str}</div>'
+                    f'  </div>'
+                    f'</div>'
+                )
+
+            progress_html = "".join(
+                f'<div class="progress-seg{" active" if i == 0 else ""}" data-index="{i}" title="Step {i + 1}"></div>'
+                for i in range(n_steps)
+            )
             steps_html = "".join(step_html(i, s) for i, s in enumerate(plan["steps"]))
-            self._send(GUIDE.replace("__CSS__", CSS).replace("__DEVICE__", html_mod.escape(plan["device"]))
-                       .replace("__NSTEPS__", str(len(plan["steps"]))).replace("__JOB__", job)
-                       .replace("__STEPS__", steps_html))
+            rail_html = "".join(rail_row_html(i, s) for i, s in enumerate(plan["steps"]))
+            step_times = json.dumps([s["t"] for s in plan["steps"]])
+            poster = plan["steps"][0]["image"] if plan.get("steps") else ""
+            poster_url = f"/jobs/{job}/{poster}" if poster else ""
+
+            resp = (GUIDE.replace("__CSS__", CSS)
+                    .replace("__DEVICE__", html_mod.escape(plan["device"]))
+                    .replace("__NSTEPS__", str(n_steps))
+                    .replace("__JOB__", job)
+                    .replace("__POSTER__", poster_url)
+                    .replace("__STEPS__", steps_html)
+                    .replace("__RAIL__", rail_html)
+                    .replace("__PROGRESS__", progress_html)
+                    .replace("__STEPTIMES__", step_times))
+            self._send(resp)
             return
         if m and m.group(2) == "guide.pdf":
             try:
@@ -401,3 +1417,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8377"))
     print(f"serving on http://127.0.0.1:{port}")
     ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+

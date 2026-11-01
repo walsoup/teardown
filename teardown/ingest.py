@@ -53,8 +53,8 @@ def extract_frame(video_path: str, t: float, png_path: str) -> str:
     subprocess.run(
         [
             "ffmpeg", "-y", "-v", "error",
-            "-i", video_path,
             "-ss", f"{t:.3f}",
+            "-i", video_path,
             "-frames:v", "1",
             png_path,
         ],

@@ -43,7 +43,7 @@ def main() -> None:
 
         api = MetaApi()
         wav = ingest.extract_audio(args.video, os.path.join(args.out, "audio.wav"))
-        transcript = api.transcribe(wav) if wav else ""
+        transcript = api.transcribe_timed(wav) if wav else []
         print(f"transcript: {len(transcript)} chars")
 
         video_id = api.upload_file(args.video)
@@ -107,3 +107,4 @@ def _mock_mask(frame_path: str) -> dict:
     mask = np.zeros((2 * rh, 2 * rw), dtype=np.uint8)
     cv2.ellipse(mask, (rw, rh), (rw - 6, rh - 6), 0, 0, 360, 1, -1)
     return {"bounds": (x1, y1, x1 + 2 * rw, y1 + 2 * rh), "mask": mask, "confidence": 1.0}
+

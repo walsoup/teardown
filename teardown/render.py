@@ -63,8 +63,11 @@ def annotate(frame_path: str, box: tuple[int, int, int, int], mask: np.ndarray,
     # Step number badge, top-left.
     cv2.circle(out, (44, 44), 30, BADGE, -1)
     cv2.circle(out, (44, 44), 30, (255, 255, 255), 2)
-    cv2.putText(out, str(step_no), (44, 56), cv2.FONT_HERSHEY_SIMPLEX, 1.1,
-                (255, 255, 255), 3, cv2.LINE_AA)
+    label = str(step_no)
+    scale = 1.1 if len(label) == 1 else 0.8
+    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, 3)
+    cv2.putText(out, label, (44 - tw // 2, 44 + th // 2), cv2.FONT_HERSHEY_SIMPLEX,
+                scale, (255, 255, 255), 3, cv2.LINE_AA)
 
     cv2.imwrite(out_path, out)
     return out_path

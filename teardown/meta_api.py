@@ -100,6 +100,28 @@ class MetaApi:
             return " ".join(self._transcribe_chunk(c) for c in chunks)
         return self._transcribe_chunk(wav_path)
 
+    def transcribe_timed(self, wav_path: str, window_s: float = 30.0) -> list[dict]:
+        """Transcribe with approximate timing by transcribing small windows.
+
+        The ASR endpoint returns no timestamps, so timing is established by
+        cutting the audio into windows of known offsets and transcribing
+        each window on its own. Billing is per audio-hour, so this costs
+        the same as one full-file call while giving every transcript line
+        a verifiable +-window_s time anchor.
+        """
+        duration = _probe_duration(wav_path)
+        windows = []
+        n = max(1, int(-(-duration // window_s)))  # ceil
+        for i in range(n):
+            start = i * window_s
+            chunk = _cut_wav(wav_path, start, min(window_s, duration - start))
+            try:
+                text = self._transcribe_chunk(chunk)
+            finally:
+                os.path.exists(chunk) and os.remove(chunk)
+            windows.append({"t": start, "text": text})
+        return windows
+
     def _transcribe_chunk(self, wav_path: str) -> str:
         with open(wav_path, "rb") as audio:
             r = self.session.post(
@@ -131,6 +153,36 @@ class MetaApi:
             if "turns" in body:
                 return " ".join(t.get("text", "") for t in body["turns"])
         return r.text
+
+
+def _probe_duration(path: str) -> float:
+    import subprocess
+
+    r = subprocess.run(
+        [
+            "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+            "-of", "csv=p=0", path,
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    return float(r.stdout.strip())
+
+
+def _cut_wav(wav_path: str, start: float, length: float) -> str:
+    """Losslessly cut [start, start+length) of a WAV into a temp file."""
+    import subprocess
+    import tempfile
+
+    fd, out = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
+            "-i", wav_path, "-ac", "1", "-ar", "16000", "-f", "wav", out,
+        ],
+        capture_output=True, check=True,
+    )
+    return out
 
 
 def _chunk_wav(wav_path: str) -> list[str]:
@@ -165,3 +217,4 @@ def _output_text(response: dict) -> str:
                 if part.get("type") == "output_text":
                     return part.get("text", "")
     return ""
+

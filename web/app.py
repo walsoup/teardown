@@ -42,16 +42,24 @@ def run_pipeline(job_id, video_path):
         plan = steps_mod.plan_steps(api, video_id, transcript, duration)
         n = len(plan["steps"])
         for i, s in enumerate(plan["steps"]):
+            JOBS[job_id]["stage"] = f"choosing frames ({i + 1}/{n})"
+            # candidate frames around the step timestamp; Spark picks the clearest
+            cands = []
+            for j, dt in enumerate((-8, -4, 0, 4, 8)):
+                ct = max(0.0, s["t"] + dt)
+                cp = os.path.join(out, "steps", f"cand-{i + 1}-{j}.png")
+                ingest.extract_frame(video_path, ct, cp)
+                cands.append((ct, cp))
+            pick = steps_mod.pick_frame(api, cands, s["part"], s["title"])
+            frame = cands[pick][1]
             JOBS[job_id]["stage"] = f"highlighting parts ({i + 1}/{n})"
-            frame = os.path.join(out, "steps", f"frame-{i + 1}.png")
-            ingest.extract_frame(video_path, s["t"], frame)
             hit = segment_mod.segment_part(api, frame, s["part"])  # fail-closed
             if hit:
                 render.annotate(frame, tuple(hit["bounds"]), hit["mask"], i + 1,
                                 os.path.join(out, "steps", f"step-{i + 1}.png"))
                 s["image"] = f"steps/step-{i + 1}.png"
             else:
-                s["image"] = f"steps/frame-{i + 1}.png"
+                s["image"] = f"steps/cand-{i + 1}-{pick}.png"
             s["segmented"] = bool(hit)
         json.dump(plan, open(os.path.join(out, "plan.json"), "w"), indent=1)
         JOBS[job_id].update(status="done", device=plan["device"], steps=n)
@@ -60,7 +68,7 @@ def run_pipeline(job_id, video_path):
 
 
 def build_pdf(job_id):
-    """Print-layout HTML -> PDF via headless chrome. Returns pdf path or None."""
+    """Compact print layout -> PDF via headless chrome. Returns pdf path or None."""
     plan = load_plan(job_id)
     if not plan:
         return None
@@ -73,59 +81,72 @@ def build_pdf(job_id):
     blocks = []
     for i, s in enumerate(steps):
         n = i + 1
-        hl = '<span class="hl">part highlighted</span>' if s.get("segmented") else ""
+        detail = []
+        if s.get("fasteners"):
+            detail.append(f'<div class=dt><b>Fasteners:</b> {esc(s["fasteners"])}</div>')
+        if s.get("connectors"):
+            detail.append(f'<div class=dt><b>Connectors:</b> {esc(s["connectors"])}</div>')
+        caut = f'<div class=caution>{esc(s["caution"])}</div>' if s.get("caution") else ""
+        hl = ' &middot; <b class=hl>part highlighted</b>' if s.get("segmented") else ""
         blocks.append(f"""
-<div class="step">
-  <div class="stephead"><span class="num">{n}</span>
-    <div><h2>{esc(s['title'])}</h2>
-    <div class="meta">{ts(s['t'])} &middot; {esc(s.get('tool') or 'fingers')} {hl}</div></div>
+<div class=step>
+  <div class=imgcol><img src="steps-img/{n}.png"></div>
+  <div class=txtcol>
+    <div class=head><span class=num>{n}</span><h2>{esc(s['title'])}</h2></div>
+    <div class=meta>{ts(s['t'])} &middot; {esc(s.get('tool') or 'fingers')}{hl}</div>
+    <p>{esc(s['instruction'])}</p>
+    {''.join(detail)}
+    {caut}
   </div>
-  <img src="steps-img/{n}.png" alt="">
-  <p>{esc(s['instruction'])}</p>
 </div>""")
-    page = f"""<!doctype html><html><head><meta charset="utf-8"><style>
-@page {{ size: A4; margin: 16mm 15mm; }}
+    tools_list = "".join(f"<li>{esc(t)}</li>" for t in plan.get("tools_summary", []))
+    page = f"""<!doctype html><html><head><meta charset=utf-8><style>
+@page {{ size: A4; margin: 14mm 14mm; }}
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 body {{ font-family: Georgia, serif; color:#26261f; }}
-.cover {{ page-break-after: always; padding-top: 60mm; }}
-.cover h1 {{ font-size: 34px; color:#2f4632; }}
+.cover h1 {{ font-size: 30px; color:#2f4632; margin-bottom: 4mm; }}
 .cover h1 .dot {{ color:#b3562e; }}
-.cover .sub {{ font-size: 15px; color:#6b6b5f; margin-top: 6mm; }}
-.banner {{ margin-top: 14mm; border:1px solid #d9d4c5; border-left:3px solid #b3562e; padding: 4mm 5mm; font-size: 12px; color:#6b6b5f; }}
-.step {{ page-break-inside: avoid; border-top: 1px solid #d9d4c5; padding: 6mm 0 7mm; }}
-.stephead {{ display:flex; align-items:flex-start; gap: 5mm; margin-bottom: 3.5mm; }}
-.num {{ flex:none; width: 9mm; height: 9mm; border-radius: 50%; background:#2f4632; color:#fff; font-family: Helvetica, Arial, sans-serif; font-size: 13px; text-align:center; line-height: 9mm; }}
-h2 {{ font-size: 17px; color:#2f4632; }}
-.meta {{ font-family: Helvetica, Arial, sans-serif; font-size: 10.5px; color:#8a8a7c; margin-top: 1.2mm; }}
-.hl {{ color:#2f4632; font-weight: bold; }}
-img {{ width: 100%; border:1px solid #d9d4c5; }}
-p {{ font-size: 12.5px; line-height: 1.55; margin-top: 3mm; }}
-.foot {{ margin-top: 8mm; font-family: Helvetica, Arial, sans-serif; font-size: 9.5px; color:#8a8a7c; border-top:1px solid #d9d4c5; padding-top: 3mm; }}
+.sub {{ font-size: 13px; color:#6b6b5f; margin-bottom: 5mm; }}
+.banner {{ border:1px solid #d9d4c5; border-left:3px solid #b3562e; padding: 3mm 4mm; font-size: 11px; color:#6b6b5f; margin-bottom: 5mm; }}
+.tools {{ border-top:1px solid #d9d4c5; padding-top: 3mm; margin-bottom: 2mm; }}
+.tools h3 {{ font-size: 13px; color:#2f4632; margin-bottom: 1.5mm; }}
+.tools ul {{ list-style: none; font-size: 12px; }}
+.tools li:before {{ content: "-  "; color:#b3562e; }}
+.step {{ display: grid; grid-template-columns: 47% 1fr; gap: 5mm; border-top: 1px solid #d9d4c5; padding: 4mm 0; page-break-inside: avoid; }}
+.imgcol img {{ width: 100%; border:1px solid #d9d4c5; }}
+.head {{ display:flex; align-items:center; gap: 3mm; margin-bottom: 1.5mm; }}
+.num {{ flex:none; width: 7.5mm; height: 7.5mm; border-radius: 50%; background:#2f4632; color:#fff; font-family: Helvetica, Arial, sans-serif; font-size: 11px; text-align:center; line-height: 7.5mm; }}
+h2 {{ font-size: 14.5px; color:#2f4632; }}
+.meta {{ font-family: Helvetica, Arial, sans-serif; font-size: 10px; color:#8a8a7c; margin-bottom: 2mm; }}
+.hl {{ color:#2f4632; }}
+p {{ font-size: 11.5px; line-height: 1.5; margin-bottom: 1.5mm; }}
+.dt {{ font-size: 10.5px; color:#4a4a40; margin-bottom: 1mm; }}
+.caution {{ border-left: 3px solid #b3562e; background:#faf3ee; padding: 1.5mm 2.5mm; font-size: 10.5px; color:#7c3a1e; margin-top: 1.5mm; }}
+.foot {{ margin-top: 6mm; font-family: Helvetica, Arial, sans-serif; font-size: 9px; color:#8a8a7c; border-top:1px solid #d9d4c5; padding-top: 2.5mm; }}
 </style></head><body>
-<div class="cover">
-  <h1>{esc(plan['device'])} - Teardown Guide<span class="dot">.</span></h1>
-  <div class="sub">{len(steps)} steps &middot; generated by teardown</div>
-  <div class="banner">Auto-generated demo output - not validated repair instructions.
-  Part highlighting is applied only where the segmentation matched the named part directly;
-  steps without a highlight show the plain video frame.</div>
+<div class=cover>
+  <h1>{esc(plan['device'])} - Teardown Guide<span class=dot>.</span></h1>
+  <div class=sub>{len(steps)} steps &middot; generated by teardown</div>
+  <div class=banner>Auto-generated demo output - not validated repair instructions. Part highlighting is applied only where the segmentation matched the named part directly; other steps show the plain video frame.</div>
+  <div class=tools><h3>Tools used in this video</h3><ul>{tools_list}</ul></div>
 </div>
 {''.join(blocks)}
-<div class="foot">Private test output. Generated by teardown.</div>
+<div class=foot>Private test output. Generated by teardown.</div>
 </body></html>"""
     jd = os.path.join(DATA, job_id)
     imgdir = os.path.join(jd, "steps-img")
     os.makedirs(imgdir, exist_ok=True)
     for i, s in enumerate(steps):
-        src = os.path.join(jd, s["image"])
+        srcimg = os.path.join(jd, s["image"])
         dst = os.path.join(imgdir, f"{i + 1}.png")
-        if os.path.exists(src) and not os.path.exists(dst):
-            os.link(src, dst)
+        if os.path.exists(srcimg) and not os.path.exists(dst):
+            os.link(srcimg, dst)
     hp = os.path.join(jd, "guide-print.html")
     open(hp, "w").write(page)
     pdf = os.path.join(jd, "guide.pdf")
-    r = subprocess.run(["google-chrome", "--headless", "--disable-gpu", "--no-sandbox",
-                        f"--print-to-pdf={pdf}", "--no-pdf-header-footer", hp],
-                       capture_output=True, timeout=120)
+    subprocess.run(["google-chrome", "--headless", "--disable-gpu", "--no-sandbox",
+                    f"--print-to-pdf={pdf}", "--no-pdf-header-footer", hp],
+                   capture_output=True, timeout=120)
     return pdf if os.path.exists(pdf) else None
 
 
@@ -162,6 +183,7 @@ video{width:100%;border:1px solid var(--hair);background:#000;display:block}
 .step .m{font-family:Helvetica,Arial,sans-serif;font-size:11px;color:var(--mut);margin:4px 0 0 32px}
 .step img{width:100%;margin-top:10px;border:1px solid var(--hair)}
 .step p{font-size:13.5px;line-height:1.55;margin:8px 0 0 32px}
+.step .caution{border-left:3px solid var(--terra);background:#faf3ee;padding:6px 10px;font-size:12px;color:#7c3a1e;margin:8px 0 0 32px}
 @media (max-width: 800px){
   body{padding:22px 14px}
   .layout{grid-template-columns:1fr;gap:14px}
@@ -253,12 +275,19 @@ class H(BaseHTTPRequestHandler):
             if not plan:
                 self._send('<p class=mut>guide not ready yet - <a href=/>back to jobs</a></p>', status=404)
                 return
-            steps_html = "".join(
-                f'<div class=step onclick=seek({s["t"]})><span class=n>{i + 1}</span><h3>{html_mod.escape(s["title"])}</h3>'
-                f'<div class=m>{int(s["t"] // 60)}:{int(s["t"] % 60):02d} &middot; {html_mod.escape(s.get("tool") or "fingers")}'
-                f'{" &middot; <b>part highlighted</b>" if s.get("segmented") else ""}</div>'
-                f'<img loading=lazy src="/jobs/{job}/{s["image"]}"><p>{html_mod.escape(s["instruction"])}</p></div>'
-                for i, s in enumerate(plan["steps"]))
+            def step_html(i, s):
+                esc = html_mod.escape
+                det = ""
+                if s.get("fasteners"):
+                    det += f'<div class=m><b>Fasteners:</b> {esc(s["fasteners"])}</div>'
+                if s.get("connectors"):
+                    det += f'<div class=m><b>Connectors:</b> {esc(s["connectors"])}</div>'
+                caut = f'<div class=caution>{esc(s["caution"])}</div>' if s.get("caution") else ""
+                return (f'<div class=step onclick=seek({s["t"]})><span class=n>{i + 1}</span><h3>{esc(s["title"])}</h3>'
+                        f'<div class=m>{int(s["t"] // 60)}:{int(s["t"] % 60):02d} &middot; {esc(s.get("tool") or "fingers")}'
+                        f'{" &middot; <b>part highlighted</b>" if s.get("segmented") else ""}</div>'
+                        f'<img loading=lazy src="/jobs/{job}/{s["image"]}"><p>{esc(s["instruction"])}</p>{det}{caut}</div>')
+            steps_html = "".join(step_html(i, s) for i, s in enumerate(plan["steps"]))
             self._send(GUIDE.replace("__CSS__", CSS).replace("__DEVICE__", html_mod.escape(plan["device"]))
                        .replace("__NSTEPS__", str(len(plan["steps"]))).replace("__JOB__", job)
                        .replace("__STEPS__", steps_html))

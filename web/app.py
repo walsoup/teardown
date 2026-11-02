@@ -292,113 +292,278 @@ a:hover {
   margin-bottom: 20px;
 }
 
-/* LANDING PAGE (INDEX) */
-.index-container {
-  max-width: 640px;
-  margin: 40px auto;
-  padding: 0 20px;
+/* LANDING PAGE (INDEX) STYLES */
+.landing-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
 }
 
-.index-header {
-  margin-bottom: 24px;
+.landing-header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--hair);
 }
 
-.index-title {
+.landing-container {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 40px 20px 60px 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-hero {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.landing-headline {
   font-family: var(--font-serif);
-  font-size: 34px;
+  font-size: 38px;
+  line-height: 1.2;
   color: var(--forest);
-  letter-spacing: -0.5px;
-  font-weight: 500;
-  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+  margin-bottom: 12px;
 }
 
-.index-card {
+.landing-subhead {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--mut);
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.err, .landing-error {
+  border: 1px solid var(--terra);
+  border-left: 3px solid var(--terra);
+  background: #fdf5f0;
+  color: var(--terra);
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.landing-card {
+  background: var(--paper-card);
+  border: 1px solid var(--hair);
+  border-radius: 12px;
   padding: 28px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
-.drop {
+.drop-zone {
   border: 1.5px dashed var(--hair);
   border-radius: 8px;
-  padding: 30px 20px;
+  padding: 36px 20px;
   text-align: center;
-  color: var(--mut);
   background: var(--paper);
   transition: border-color 0.15s ease, background 0.15s ease;
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
-.drop:hover {
+.drop-zone:hover, .drop-zone.drag-over {
   border-color: var(--forest);
   background: var(--paper-hover);
 }
 
-.drop label {
-  cursor: pointer;
-  display: block;
-  font-family: var(--font-sans);
-  font-size: 14px;
-}
-
-.drop b {
+.drop-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--hair);
+  background: var(--paper-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--forest);
-  text-decoration: underline;
+  margin-bottom: 4px;
 }
 
-.drop input {
-  display: none;
+.drop-icon-wrap .material-symbols-outlined {
+  font-size: 24px;
 }
 
-.or {
-  text-align: center;
-  color: var(--mut);
+.drop-title {
   font-family: var(--font-serif);
-  font-style: italic;
-  margin: 16px 0;
-  position: relative;
-  font-size: 14px;
+  font-size: 20px;
+  color: var(--forest);
+  font-weight: 500;
 }
 
-.or::before,
-.or::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 42%;
+.drop-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--mut);
+  margin-bottom: 6px;
+}
+
+.drop-browse-pill {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  background: var(--paper-card);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  color: var(--forest);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.drop-browse-pill:hover {
+  border-color: var(--forest);
+  background: var(--paper-hover);
+}
+
+.landing-or-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 22px 0;
+}
+
+.or-line {
+  flex: 1;
   height: 1px;
   background: var(--hair);
 }
 
-.or::before { left: 0; }
-.or::after { right: 0; }
+.or-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--mut);
+  text-transform: lowercase;
+}
 
-input[type="text"] {
+.url-input-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.url-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+
+.url-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.url-input-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.url-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--mut);
+  font-size: 18px;
+  pointer-events: none;
+}
+
+.url-input {
   width: 100%;
+  padding: 11px 16px 11px 40px;
   border: 1px solid var(--hair);
-  border-radius: 6px;
-  padding: 10px 14px;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  background: var(--paper-card);
+  border-radius: 999px;
+  background: var(--paper);
   color: var(--body-ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   outline: none;
   transition: border-color 0.15s ease;
 }
 
-input[type="text"]:focus {
+.url-input:focus {
   border-color: var(--forest);
 }
 
 .submit-pill {
-  width: 100%;
-  padding: 12px;
-  font-size: 14px;
+  padding: 11px 22px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.landing-subbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  background: var(--paper-card);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--terra);
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--mut);
+  margin-bottom: 36px;
+  text-align: center;
+}
+
+.recent-guides-section {
+  margin-top: 10px;
+  margin-bottom: 40px;
+}
+
+.recent-guides-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--hair);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+
+.recent-guides-title {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--forest);
+  font-weight: 400;
 }
 
 .jobs-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--paper-card);
+  overflow: hidden;
 }
 
 .job-card {
@@ -406,17 +571,82 @@ input[type="text"]:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 1px solid var(--hair);
+  background: transparent;
+  transition: background 0.15s ease;
+  margin: 0;
+  border-radius: 0;
+}
+
+.job-card:last-child {
+  border-bottom: none;
+}
+
+.job-card:hover {
+  background: var(--paper-hover);
 }
 
 .job-card .pill {
-  padding: 6px 14px;
-  font-size: 12px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.index-footer {
-  margin-top: 40px;
-  padding-bottom: 24px;
+.job-card {
+  gap: 12px;
+}
+
+.job-card > .mut {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.job-card .mut {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+
+.landing-footer {
   text-align: center;
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid var(--hair);
+}
+
+.footer-brand {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--forest);
+  margin-bottom: 6px;
+}
+
+@media (max-width: 600px) {
+  .landing-headline {
+    font-size: 28px;
+  }
+  .landing-card {
+    padding: 18px;
+  }
+  .drop-zone {
+    padding: 24px 14px;
+  }
+  .url-input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .submit-pill {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 /* APP HEADER & SUBBAR */
@@ -1512,36 +1742,109 @@ INDEX = """<!doctype html><html><head><meta charset=utf-8>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <style>__CSS__</style>
-__REFRESH__</head><body>
-<div class="index-container">
-  <header class="index-header">
-    <h1 class="index-title">teardown<span class="dot">.</span></h1>
-    <p class="mut">repair footage in, illustrated guide out</p>
-  </header>
+__REFRESH__</head><body class="landing-page">
+<!-- __DEVICE__ -->
+<header class="landing-header">
+  <div class="header-left">
+    <a href="/" class="brand font-serif">teardown<span class="dot">.</span></a>
+  </div>
+</header>
+
+<div class="landing-container">
+  <section class="landing-hero">
+    <h1 class="landing-headline font-serif">repair footage in, illustrated guide out</h1>
+    <p class="landing-subhead">drop in a teardown video, get an illustrated step-by-step guide</p>
+  </section>
+
   __ERROR__
-  <div class="card index-card">
-    <form method="post" action="/jobs" enctype="multipart/form-data">
-      <div class="drop">
-        <label for="f">drop a video here or <b>browse files</b>
-          <input id="f" type="file" name="video" accept="video/mp4,video/quicktime,video/*">
+
+  <div class="card landing-card">
+    <form method="post" action="/jobs" enctype="multipart/form-data" class="landing-form">
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-icon-wrap">
+          <span class="material-symbols-outlined">videocam</span>
+        </div>
+        <div class="drop-title font-serif">drop a video here</div>
+        <p class="drop-sub mono-label">mp4 or mov, up to 2 GB</p>
+        <label for="f" class="pill drop-browse-pill">
+          <span class="material-symbols-outlined" style="font-size:16px;">folder_open</span>
+          <span id="browse-label">browse files</span>
+          <input id="f" type="file" name="video" accept="video/mp4,video/quicktime,video/*" style="display:none;">
         </label>
       </div>
-      <div class="or">or</div>
-      <p><input type="text" name="url" placeholder="paste a youtube link"></p>
-      <p style="margin-top:16px"><button class="pill solid submit-pill" type="submit">build guide</button></p>
+
+      <div class="landing-or-divider">
+        <span class="or-line"></span>
+        <span class="or-text mono-label">or</span>
+        <span class="or-line"></span>
+      </div>
+
+      <div class="url-input-section">
+        <label for="url-input" class="url-label mono-label">paste a youtube link</label>
+        <div class="url-input-row">
+          <div class="url-input-wrap">
+            <span class="material-symbols-outlined url-icon">link</span>
+            <input type="text" id="url-input" name="url" placeholder="paste a youtube link" class="url-input">
+          </div>
+          <button class="pill solid submit-pill" type="submit">
+            <span>build guide</span>
+            <span class="material-symbols-outlined" style="font-size:16px;">arrow_forward</span>
+          </button>
+        </div>
+      </div>
     </form>
   </div>
-  <div class="jobs-list">
-    __JOBS__
+
+  <div class="landing-subbar">
+    <span class="material-symbols-outlined" style="font-size:16px; color:var(--terra); margin-right:6px;">info</span>
+    <span>generated guides are a private test draft - not validated repair instructions</span>
   </div>
-  <footer class="index-footer">
+
+  <section class="recent-guides-section">
+    <div class="recent-guides-header">
+      <h2 class="recent-guides-title font-serif">recent guides</h2>
+    </div>
+    <div class="jobs-list">
+      __JOBS__
+    </div>
+  </section>
+
+  <footer class="landing-footer">
+    <div class="footer-brand font-serif">teardown<span class="dot">.</span></div>
     <p class="app-footer">private test output - generated by teardown</p>
   </footer>
 </div>
+
 <script>
-document.getElementById('f').addEventListener('change', function(){
-  this.closest('.drop').querySelector('b').textContent = this.files[0] ? this.files[0].name : 'browse files';
-});
+const fileInput = document.getElementById('f');
+if (fileInput) {
+  fileInput.addEventListener('change', function(){
+    const b = document.getElementById('browse-label');
+    if (b) b.textContent = this.files[0] ? this.files[0].name : 'browse files';
+  });
+}
+const dropZone = document.getElementById('drop-zone');
+if (dropZone && fileInput) {
+  ['dragenter', 'dragover'].forEach(function(name) {
+    dropZone.addEventListener(name, function(e) {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function(name) {
+    dropZone.addEventListener(name, function(e) {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+    });
+  });
+  dropZone.addEventListener('drop', function(e) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      const b = document.getElementById('browse-label');
+      if (b) b.textContent = fileInput.files[0].name;
+    }
+  });
+}
 </script>
 </body></html>"""
 
@@ -1786,10 +2089,11 @@ function updateStateUI() {
     const segs = progressBar.children;
     for (let i = 0; i < segs.length; i++) {
       segs[i].classList.remove('done', 'active');
+      if (doneSteps.has(i)) {
+        segs[i].classList.add('done');
+      }
       if (i === idx) {
         segs[i].classList.add('active');
-      } else if (doneSteps.has(i)) {
-        segs[i].classList.add('done');
       }
     }
   }

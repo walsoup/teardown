@@ -38,6 +38,7 @@ class MetaApi:
         with open(path, "rb") as fh:
             r = self.session.post(
                 f"{BASE_URL}/files",
+                timeout=300,
                 files={"file": (os.path.basename(path), fh)},
                 data={"purpose": purpose},
             )
@@ -48,6 +49,7 @@ class MetaApi:
         """One non-streaming Responses call. Returns the output_text."""
         r = self.session.post(
             f"{BASE_URL}/responses",
+            timeout=300,
             json={
                 "model": model,
                 "input": [{"type": "message", "role": "user", "content": content}],
@@ -64,6 +66,7 @@ class MetaApi:
         """
         r = self.session.post(
             f"{BASE_URL}/responses",
+            timeout=300,
             json={
                 "model": model,
                 "input": [{"type": "message", "role": "user", "content": content}],
@@ -126,6 +129,7 @@ class MetaApi:
         with open(wav_path, "rb") as audio:
             r = self.session.post(
                 f"{BASE_URL}/asr/transcribe",
+                timeout=180,
                 headers={"Accept": "application/json"},
                 files={
                     "request": (
@@ -180,7 +184,7 @@ def _cut_wav(wav_path: str, start: float, length: float) -> str:
             "ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
             "-i", wav_path, "-ac", "1", "-ar", "16000", "-f", "wav", out,
         ],
-        capture_output=True, check=True,
+        capture_output=True, check=True, timeout=120,
     )
     return out
 
@@ -217,4 +221,5 @@ def _output_text(response: dict) -> str:
                 if part.get("type") == "output_text":
                     return part.get("text", "")
     return ""
+
 

@@ -122,7 +122,7 @@ def run_pipeline(job_id, video_path):
     JOBS[job_id]["_meter"] = meter
     try:
         sys.path.insert(0, PIPELINE)
-        from teardown import ingest, steps as steps_mod, segment as segment_mod, render
+        from teardown import ingest, steps as steps_mod, segment as segment_mod
         from teardown.meta_api import MetaApi
         if not os.environ.get("MODEL_API_KEY"):
             os.environ["MODEL_API_KEY"] = open(KEY_FILE).read().strip()
@@ -185,6 +185,7 @@ def run_pipeline(job_id, video_path):
                 JOBS[job_id]["stage"] = f"highlighting parts ({i + 1}/{n})"
                 hit = segment_mod.segment_part(api, frame, s["part"])  # fail-closed
                 if hit:
+                    from teardown import render
                     render.annotate(frame, tuple(hit["bounds"]), hit["mask"], i + 1,
                                     os.path.join(out, "steps", f"step-{i + 1}.png"))
                     s["image"] = f"steps/step-{i + 1}.png"
@@ -2559,7 +2560,24 @@ class H(BaseHTTPRequestHandler):
             job = m.group(1)
             plan = load_plan(job)
             if not plan:
-                self._send('<p class=mut>guide not ready yet - <a href=/>back to jobs</a></p>', status=404)
+                st = JOBS.get(job)
+                if st and st.get("status") in ("queued", "processing"):
+                    stage = html_mod.escape(st.get("stage", ""))
+                    self._send(
+                        '<!doctype html><meta charset=utf-8>'
+                        '<meta http-equiv="refresh" content="4">'
+                        '<title>building guide</title>'
+                        '<body style="font-family:system-ui;background:#f6f1e7;color:#1d1c16;text-align:center;padding:64px 24px">'
+                        '<h2 style="font-weight:500">building your guide&hellip;</h2>'
+                        '<p style="color:#5c645b">' + stage + '</p>'
+                        '<p style="color:#7e877d;font-size:13px">this page refreshes itself; large videos can take a few minutes</p>',
+                        status=200)
+                elif st and st.get("status") == "error":
+                    self._send('<p class=err>this guide failed: '
+                               + html_mod.escape(st.get("error", "unknown error"))
+                               + ' - <a href=/>back</a></p>', status=500)
+                else:
+                    self._send('<p class=mut>guide not found or expired - <a href=/>back to jobs</a></p>', status=404)
                 return
             n_steps = len(plan["steps"])
 
@@ -2685,6 +2703,9 @@ class H(BaseHTTPRequestHandler):
             return
         if m and m.group(2) == "guide.pdf":
             job = m.group(1)
+            if os.environ.get("TEARDOWN_NO_PDF") == "1":
+                self._send("pdf download is disabled in this demo", "text/plain", 404)
+                return
             pdf = os.path.join(DATA, job, "guide.pdf")
             if not os.path.exists(pdf):
                 try:

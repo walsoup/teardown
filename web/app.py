@@ -4,7 +4,7 @@ Real wiring only: jobs run the actual teardown pipeline (transcribe, plan,
 segment, render). Status shown is the pipeline's real stage. No mock states.
 """
 import html as html_mod
-import json, os, re, subprocess, sys, threading, uuid
+import json, os, re, shutil, subprocess, sys, threading, time, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -14,6 +14,100 @@ PIPELINE = os.environ.get("TEARDOWN_PKG", os.path.join(ROOT, ".."))  # repo root
 KEY_FILE = os.environ.get("TEARDOWN_KEY_FILE")  # fallback if MODEL_API_KEY is not set
 
 JOBS = {}
+ACTIVE_LOCK = threading.Lock()
+RATE = {}
+RATE_LIMIT_PER_HOUR = int(os.environ.get("TEARDOWN_RATE_PER_HOUR", "2"))
+MAX_UPLOAD_BYTES = int(os.environ.get("TEARDOWN_MAX_UPLOAD_MB", "150")) * 1024**2
+MAX_DURATION_S = float(os.environ.get("TEARDOWN_MAX_DURATION", "1200"))
+MAX_STEPS = int(os.environ.get("TEARDOWN_MAX_STEPS", "35"))
+JOB_TTL_S = int(os.environ.get("TEARDOWN_JOB_TTL_H", "3")) * 3600
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com",
+                 "music.youtube.com", "youtu.be"}
+# public demo: contributor tier keeps the shared budget alive much longer;
+# the upload page discloses that Meta may train on submitted footage.
+os.environ.setdefault("TEARDOWN_SPARK_MODEL", "muse-spark-1.3-contributor")
+sys.path.insert(0, ROOT)
+import budget
+
+
+def probe_duration(video_path):
+    r = subprocess.run(["ffprobe", "-v", "quiet", "-show_entries",
+                        "format=duration", "-of", "csv=p=0", video_path],
+                       capture_output=True, text=True, timeout=60)
+    return float(r.stdout.strip())
+
+
+class MeteredApi:
+    # Wraps teardown.meta_api.MetaApi; every billable call reserves its
+    # worst-case cost before it runs and settles actuals after.
+    def __init__(self, meter):
+        from teardown.meta_api import MetaApi
+        self._inner = MetaApi()
+        self.meter = meter
+        orig_chunk = self._inner._transcribe_chunk
+
+        def metered_chunk(wav_path):
+            dur = 30.0
+            try:
+                dur = float(subprocess.run(
+                    ["ffprobe", "-v", "quiet", "-show_entries",
+                     "format=duration", "-of", "csv=p=0", wav_path],
+                    capture_output=True, text=True, timeout=60).stdout.strip())
+            except Exception:
+                pass
+            est = self.meter.asr_before(dur)
+            try:
+                return orig_chunk(wav_path)
+            finally:
+                self.meter.asr_after(dur, est)
+
+        self._inner._transcribe_chunk = metered_chunk
+
+    def respond(self, model, content, **extra):
+        max_out = extra.get("max_output_tokens") or 2000
+        if max_out > 4000:
+            est_in = budget.EST["planner_input_tokens"]
+            est_out = int(max_out * 1.06)
+        else:
+            est_in = budget.EST["pick_input_tokens"]
+            est_out = int(max_out * 1.25)
+        est = self.meter.spark_before(est_in, est_out)
+        try:
+            return self._inner.respond(model, content, **extra)
+        finally:
+            # a failed call still gets charged at estimate - overcounting is
+            # safe, undercounting is not
+            self.meter.spark_after(est, self._inner.last_usage)
+
+    def respond_stream(self, model, content, **extra):
+        est = self.meter.sam_before()
+        try:
+            for ev in self._inner.respond_stream(model, content, **extra):
+                yield ev
+        finally:
+            self.meter.sam_after(est)
+
+    def upload_file(self, path, purpose="user_data"):
+        return self._inner.upload_file(path, purpose)  # files API: not billed
+
+    def transcribe_timed(self, wav_path, window_s=30.0):
+        return self._inner.transcribe_timed(wav_path, window_s)
+
+
+def run_pipeline_guarded(job_id, video_path):
+    if not ACTIVE_LOCK.acquire(blocking=False):
+        JOBS[job_id].update(status="error",
+                            error="another guide is being built - try again shortly")
+        try:
+            budget.settle(job_id, 0.0)
+        except Exception:
+            pass
+        return
+    try:
+        run_pipeline(job_id, video_path)
+    finally:
+        ACTIVE_LOCK.release()
+
 
 
 def load_plan(job_id):
@@ -23,13 +117,16 @@ def load_plan(job_id):
 
 def run_pipeline(job_id, video_path):
     JOBS[job_id]["status"] = "processing"
+    meter = budget.JobMeter(job_id, JOBS[job_id]["reservation"],
+                            os.environ["TEARDOWN_SPARK_MODEL"])
+    JOBS[job_id]["_meter"] = meter
     try:
         sys.path.insert(0, PIPELINE)
         from teardown import ingest, steps as steps_mod, segment as segment_mod, render
         from teardown.meta_api import MetaApi
         if not os.environ.get("MODEL_API_KEY"):
             os.environ["MODEL_API_KEY"] = open(KEY_FILE).read().strip()
-        api = MetaApi()
+        api = MeteredApi(JOBS[job_id]["_meter"])
         out = os.path.join(DATA, job_id)
         os.makedirs(os.path.join(out, "steps"), exist_ok=True)
         JOBS[job_id]["stage"] = "extracting audio"
@@ -56,6 +153,9 @@ def run_pipeline(job_id, video_path):
         video_id = api.upload_file(video_path)
         duration = ingest.probe_duration(video_path)
         plan = steps_mod.plan_steps(api, video_id, transcript, duration)
+        if len(plan["steps"]) > MAX_STEPS:
+            plan["steps"] = plan["steps"][:MAX_STEPS]
+            plan["truncated"] = True
         n = len(plan["steps"])
         for i, s in enumerate(plan["steps"]):
             try:
@@ -103,6 +203,12 @@ def run_pipeline(job_id, video_path):
         JOBS[job_id].update(status="done", device=plan["device"], steps=n)
     except Exception as e:
         JOBS[job_id].update(status="error", error=str(e)[:300])
+    finally:
+        JOBS[job_id]["spent"] = round(meter.actual, 6)
+        try:
+            budget.settle(job_id, meter.actual)
+        except Exception:
+            pass  # reservation stands (overcounts); new jobs fail closed
 
 
 def build_pdf(job_id):
@@ -195,7 +301,7 @@ p {{ font-size: 11.5px; line-height: 1.45; margin-bottom: 2mm; }}
     hp = os.path.join(jd, "guide-print.html")
     open(hp, "w").write(page)
     pdf = os.path.join(jd, "guide.pdf")
-    subprocess.run(["google-chrome", "--headless", "--disable-gpu", "--no-sandbox",
+    subprocess.run([os.environ.get("CHROME_BIN", "google-chrome"), "--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
                     f"--print-to-pdf={pdf}", "--no-pdf-header-footer", hp],
                    capture_output=True, timeout=120)
     return pdf if os.path.exists(pdf) else None
@@ -1758,7 +1864,7 @@ __REFRESH__</head><body class="landing-page">
     <form method="post" action="/jobs" enctype="multipart/form-data" class="landing-form">
       <div class="drop-zone" id="drop-zone">
         <div class="drop-title font-serif">drop a video here</div>
-        <p class="drop-sub mono-label">mp4 or mov, up to 2 GB</p>
+        <p class="drop-sub mono-label">mp4 or mov, up to 150 MB and 20 minutes</p>
         <label for="f" class="pill drop-browse-pill">
           <span class="material-symbols-outlined" style="font-size:16px;">folder_open</span>
           <span id="browse-label">browse files</span>
@@ -1787,11 +1893,12 @@ __REFRESH__</head><body class="landing-page">
     </form>
   </div>
 
-  <p class="landing-subbar">generated guides are a private test draft - not validated repair instructions</p>
+  <p class="landing-subbar">public demo - generated guides are not validated repair instructions</p>
+  <p class="landing-subbar" style="margin-top:8px">uploads are sent to Meta's API (contributor tier: Meta may use footage to train its models). only upload video you have the right to share. guides auto-delete after 3 hours.</p>
 
   <section class="recent-guides-section">
     <div class="recent-guides-header">
-      <h2 class="recent-guides-title font-serif">recent guides</h2>
+      <h2 class="recent-guides-title font-serif">your recent guides</h2>
     </div>
     <div class="jobs-list">
       __JOBS__
@@ -1799,7 +1906,7 @@ __REFRESH__</head><body class="landing-page">
   </section>
 
   <footer class="landing-footer">
-    <p class="app-footer">private test output</p>
+    <p class="app-footer">public demo - shared $20 API budget - not repair advice</p>
   </footer>
 </div>
 
@@ -2371,6 +2478,13 @@ class H(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                         "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                         "media-src 'self'")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -2412,14 +2526,33 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/budget":
+            try:
+                st = budget.status()
+                body = json.dumps({"budget_usd": st["cap_usd"],
+                                   "spent_usd": round(st["spent_usd"], 4),
+                                   "reserved_usd": round(st["reserved_usd"], 4),
+                                   "remaining_usd": round(st["remaining_usd"], 4),
+                                   "guides_built": st["jobs"]})
+            except Exception:
+                body = json.dumps({"error": "budget ledger unreachable"})
+            self._send(body, "application/json")
+            return
         if u.path == "/":
             busy = any(j["status"] in ("queued", "processing") for j in list(JOBS.values()))
             refresh = '<meta http-equiv="refresh" content="4">' if busy else ""
             err = parse_qs(u.query).get("e", [""])[0] if u.query else ""
             err_html = f'<div class=err>{html_mod.escape(err)}</div>' if err else ""
+            mine = []
+            for part in (self.headers.get("Cookie") or "").split(";"):
+                part = part.strip()
+                if part.startswith("td_jobs="):
+                    mine = [x for x in part[8:].split(".") if x in JOBS]
+            cards = "".join(job_card(j) for j in reversed(mine)) or \
+                '<span class="mut">guides you build in this browser show up here</span>'
             self._send(INDEX.replace("__CSS__", CSS).replace("__REFRESH__", refresh)
                        .replace("__ERROR__", err_html)
-                       .replace("__JOBS__", "".join(job_card(j) for j in list(JOBS))))
+                       .replace("__JOBS__", cards))
             return
         m = re.match(r"^/jobs/([\w-]+)(?:/(.*))?$", u.path)
         if m and m.group(2) is None:
@@ -2576,26 +2709,58 @@ class H(BaseHTTPRequestHandler):
             return
         self._send("not found", "text/plain", 404)
 
+    def _redirect(self, msg):
+        clean = re.sub(r"[^A-Za-z0-9 .$:-]", "", msg)[:140].replace(" ", "%20")
+        self.send_response(303)
+        self.send_header("Location", "/?e=" + clean)
+        self.end_headers()
+
+    def _job_cookie(self, job):
+        ids = []
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            part = part.strip()
+            if part.startswith("td_jobs="):
+                ids = [x for x in part[8:].split(".")
+                       if re.fullmatch(r"[0-9a-f]{32}", x)]
+        if job not in ids:
+            ids.append(job)
+        return ("td_jobs=" + ".".join(ids[-12:])
+                + "; Path=/; Max-Age=86400; SameSite=Lax")
+
     def do_POST(self):
         if self.path != "/jobs":
             self._send("not found", "text/plain", 404)
             return
         try:
+            ip = (self.headers.get("X-Forwarded-For")
+                  or self.client_address[0]).split(",")[0].strip()
+            now = time.time()
+            hits = [t for t in RATE.get(ip, []) if now - t < 3600]
+            if len(hits) >= RATE_LIMIT_PER_HOUR:
+                self._redirect("slow down - this demo allows a couple of guides per hour")
+                return
+            if ACTIVE_LOCK.locked():
+                self._redirect("another guide is being built right now - try again in a few minutes")
+                return
             ln = int(self.headers.get("Content-Length", 0))
-            if ln <= 0 or ln > 2 * 1024**3:
-                raise ValueError("bad upload size")
+            if ln <= 0 or ln > MAX_UPLOAD_BYTES:
+                self._redirect("video too large - keep it under 150 MB")
+                return
             body = self.rfile.read(ln)
             url_m = re.search(rb'name="url"\r\n\r\n([^\r]*)', body)
             url = url_m.group(1).decode().strip() if url_m else ""
             fm = re.search(rb'name="video"; filename="([^"]+)"\r\nContent-Type:[^\r]+\r\n\r\n', body)
             has_file = bool(fm and fm.group(1))
             if not url and not has_file:
-                self.send_response(303)
-                self.send_header("Location", "/?e=add a video file or a youtube link first")
-                self.end_headers()
+                self._redirect("add a video file or a youtube link first")
                 return
-            job = uuid.uuid4().hex[:8]
-            JOBS[job] = {"status": "queued", "stage": ""}
+            if url:
+                pu = urlparse(url)
+                if (pu.scheme != "https" or pu.hostname not in YOUTUBE_HOSTS
+                        or pu.username or pu.password):
+                    self._redirect("only public youtube links work in this demo")
+                    return
+            job = uuid.uuid4().hex
             d = os.path.join(DATA, job)
             os.makedirs(d, exist_ok=True)
             video_path = os.path.join(d, "video.mp4")
@@ -2603,18 +2768,62 @@ class H(BaseHTTPRequestHandler):
                 end = body.rfind(b"\r\n------")
                 open(video_path, "wb").write(body[fm.end():end])
             else:
-                r = subprocess.run(["yt-dlp", "-f", "bv*+ba/b", "--merge-output-format", "mp4",
-                                    "-o", video_path, url], capture_output=True, timeout=600)
+                r = subprocess.run(
+                    ["yt-dlp", "--max-filesize", "140m",
+                     "-f", "bv*[height<=720]+ba/b[height<=720]/b",
+                     "--merge-output-format", "mp4",
+                     "-o", video_path, url], capture_output=True, timeout=600)
                 if r.returncode != 0 or not os.path.exists(video_path):
-                    raise ValueError("could not download that link - check it plays publicly")
-            threading.Thread(target=run_pipeline, args=(job, video_path), daemon=True).start()
+                    shutil.rmtree(d, ignore_errors=True)
+                    self._redirect("could not download that link - check it plays publicly and is under 20 minutes")
+                    return
+            try:
+                duration = probe_duration(video_path)
+            except Exception:
+                duration = 0
+            if not duration or duration > MAX_DURATION_S:
+                shutil.rmtree(d, ignore_errors=True)
+                self._redirect("video too long - this demo handles up to 20 minutes")
+                return
+            reservation = budget.job_reservation(
+                duration, MAX_STEPS, os.environ["TEARDOWN_SPARK_MODEL"])
+            try:
+                ok = budget.reserve(job, reservation)
+            except budget.LedgerUnavailable:
+                shutil.rmtree(d, ignore_errors=True)
+                self._redirect("demo is paused - its budget ledger is unreachable")
+                return
+            if not ok:
+                shutil.rmtree(d, ignore_errors=True)
+                self._redirect("the demo's shared API budget is spent - no more guides for now")
+                return
+            hits.append(now)
+            RATE[ip] = hits
+            JOBS[job] = {"status": "queued", "stage": "",
+                         "reservation": reservation, "created": now}
+            threading.Thread(target=run_pipeline_guarded,
+                             args=(job, video_path), daemon=True).start()
             self.send_response(303)
-            self.send_header("Location", "/")
+            self.send_header("Location", "/jobs/" + job)
+            self.send_header("Set-Cookie", self._job_cookie(job))
             self.end_headers()
         except Exception as e:
-            self.send_response(303)
-            self.send_header("Location", "/?e=" + re.sub(r"[^A-Za-z0-9 .-]", "", str(e))[:120].replace(" ", "%20"))
-            self.end_headers()
+            self._redirect(str(e)[:120])
+
+
+def reaper():
+    while True:
+        time.sleep(900)
+        now = time.time()
+        for d in os.listdir(DATA):
+            p = os.path.join(DATA, d)
+            active = JOBS.get(d, {}).get("status") in ("queued", "processing")
+            try:
+                if os.path.isdir(p) and not active and now - os.path.getmtime(p) > JOB_TTL_S:
+                    shutil.rmtree(p, ignore_errors=True)
+                    JOBS.pop(d, None)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
@@ -2623,6 +2832,9 @@ if __name__ == "__main__":
         if os.path.exists(os.path.join(DATA, d, "plan.json")):
             plan = json.load(open(os.path.join(DATA, d, "plan.json")))
             JOBS[d] = {"status": "done", "device": plan["device"], "steps": len(plan["steps"])}
+    threading.Thread(target=reaper, daemon=True).start()
     port = int(os.environ.get("PORT", "8377"))
-    print(f"serving on http://127.0.0.1:{port}")
-    ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+    host = os.environ.get("HOST", "0.0.0.0")
+    print(f"serving on http://{host}:{port}")
+    ThreadingHTTPServer((host, port), H).serve_forever()
+

@@ -32,6 +32,7 @@ class MetaApi:
             )
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {self.api_key}"
+        self.last_usage = None  # usage dict from the most recent response
 
     def upload_file(self, path: str, purpose: str = "user_data") -> str:
         """Upload a file once, get back a file_id to reference in requests."""
@@ -57,7 +58,9 @@ class MetaApi:
             },
         )
         r.raise_for_status()
-        return _output_text(r.json())
+        body = r.json()
+        self.last_usage = body.get("usage")
+        return _output_text(body)
 
     def respond_stream(self, model: str, content: list[dict], **extra):
         """Streaming Responses call. Yields the raw event dicts.
@@ -85,6 +88,7 @@ class MetaApi:
             event = json.loads(data)
             etype = event.get("type", "")
             if etype == "response.completed":
+                self.last_usage = (event.get("response") or {}).get("usage")
                 yield event
                 break
             if etype in ("response.failed", "error"):
@@ -221,5 +225,6 @@ def _output_text(response: dict) -> str:
                 if part.get("type") == "output_text":
                     return part.get("text", "")
     return ""
+
 
 

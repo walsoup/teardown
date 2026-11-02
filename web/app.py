@@ -164,6 +164,8 @@ def _download(job_id, url, video_path):
     cmd = ["yt-dlp", "--no-playlist", "--max-filesize", "140m",
            "-f", "bv*[height<=720]+ba/b[height<=720]/b",
            "--merge-output-format", "mp4", "--newline",
+           "--js-runtimes", "deno", "--retries", "0",
+           "--extractor-retries", "0", "--fragment-retries", "0",
            "-o", video_path, url]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
@@ -195,15 +197,21 @@ def _download(job_id, url, video_path):
         proc.kill()
     if proc.returncode == 0 and os.path.exists(video_path):
         return True
-    tail = " | ".join(lines[-4:])
-    print(f"[yt-dlp fail job {job_id[:8]}] {tail[:800]}", flush=True)
+    tail = " | ".join(lines[-12:])
+    print(f"[yt-dlp fail job {job_id[:8]}] {tail[:4000]}", flush=True)
     if os.path.exists(video_path):
         os.remove(video_path)
     low = tail.lower()
-    if ("confirm" in low and "bot" in low) or "sign in to" in low or "http error 403" in low:
+    if "no supported javascript runtime" in low or "ejs" in low and "not available" in low:
+        msg = "the server's YouTube downloader setup is incomplete - please try a file upload while it is repaired"
+    elif ("confirm" in low and "bot" in low) or "sign in to" in low:
         msg = ("YouTube is blocking this demo's server, not your video - it makes "
                "datacenter servers prove they are not bots, and this one can't. "
                "Save the video yourself and upload the file here instead.")
+    elif "http error 403" in low:
+        msg = ("YouTube refused this download (HTTP 403). This can be a server access "
+               "restriction or a downloader compatibility issue; the cause is not confirmed. "
+               "You can upload a video file instead.")
     elif "max-filesize" in low or "larger than" in low:
         msg = "that video is over this demo's 140 MB download limit - use a shorter or lower-quality clip"
     elif "unsupported url" in low:

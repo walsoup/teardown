@@ -19,10 +19,11 @@ def full_frame_mask(shape: tuple[int, int], box: tuple[int, int, int, int], mask
     full = np.zeros((h, w), dtype=np.uint8)
     x1, y1, x2, y2 = box
     mh, mw = mask.shape[:2]
+    x1c, y1c = max(0, x1), max(0, y1)
     x2c, y2c = min(x1 + mw, w), min(y1 + mh, h)
-    if x2c <= x1 or y2c <= y1:
+    if x2c <= x1c or y2c <= y1c:
         return full
-    full[y1:y2c, x1:x2c] = mask[: y2c - y1, : x2c - x1]
+    full[y1c:y2c, x1c:x2c] = mask[y1c - y1: y2c - y1, x1c - x1: x2c - x1]
     return full
 
 
@@ -71,3 +72,4 @@ def annotate(frame_path: str, box: tuple[int, int, int, int], mask: np.ndarray,
 
     cv2.imwrite(out_path, out)
     return out_path
+

@@ -1763,7 +1763,8 @@ function escapeHtml(str) {
 
 function formatRemaining(idx) {
   const t = stepTimes[idx] || 0;
-  const rem = Math.max(0, 1160 - t);
+  const dur = (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 1156;
+  const rem = Math.max(0, dur - t);
   const mins = Math.floor(rem / 60);
   const secs = Math.floor(rem % 60);
   return 'EST. REMAINING ' + mins + 'm ' + secs + 's';
@@ -1883,6 +1884,7 @@ function setStep(idx, andSeek) {
   updateStateUI();
 
   if (andSeek && v) {
+    expectedSeekTime = stepTimes[idx];
     v.currentTime = stepTimes[idx];
     v.play().catch(function(){});
   }
@@ -1969,6 +1971,8 @@ if (v) {
   if (v.readyState >= 2 && vLoading) {
     vLoading.style.display = 'none';
   }
+  v.addEventListener('loadedmetadata', function() { updateStateUI(); });
+  v.addEventListener('seeked', function() { expectedSeekTime = null; });
   if (vLoading) {
     v.addEventListener('loadeddata', function() { vLoading.style.display = 'none'; });
     v.addEventListener('canplay', function() { vLoading.style.display = 'none'; });
@@ -1982,6 +1986,12 @@ if (v) {
   });
   v.addEventListener('timeupdate', function() {
     const ct = v.currentTime;
+    if (expectedSeekTime !== null) {
+      if (Math.abs(ct - expectedSeekTime) > 1.5) {
+        return; // stale position from before our programmatic seek landed
+      }
+      expectedSeekTime = null;
+    }
     let idx = 0;
     for (let i = 0; i < stepTimes.length; i++) {
       if (ct >= stepTimes[i]) {
@@ -2035,6 +2045,7 @@ document.addEventListener('keydown', function(e) {
 });
 
 var hasInteracted = false;
+var expectedSeekTime = null;
 if (disclosure && window.innerWidth >= 1024) { disclosure.open = true; }
 // Initialize storage and UI
 loadStorage();

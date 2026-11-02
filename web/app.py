@@ -2530,7 +2530,8 @@ class H(BaseHTTPRequestHandler):
         if u.path == "/budget":
             try:
                 st = budget.status()
-                body = json.dumps({"budget_usd": st["cap_usd"],
+                body = json.dumps({"basis": "conservative in-app estimate (worst-case reservations settled per job), not provider-billed spend",
+                                   "budget_usd": st["cap_usd"],
                                    "spent_usd": round(st["spent_usd"], 4),
                                    "reserved_usd": round(st["reserved_usd"], 4),
                                    "remaining_usd": round(st["remaining_usd"], 4),

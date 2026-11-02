@@ -1,6 +1,6 @@
 {
  "cap_usd": 20.0,
- "spent_usd": 0.06581,
+ "spent_usd": 0.11581,
  "reserved": {
   "77eab78160a04887aa4edff06b6badf8": 0.516477
  },
@@ -24,6 +24,11 @@
    "job": "localtest1",
    "actual_usd": 0.02,
    "ts": 1793613772
+  },
+  {
+   "job": "852e31781d6f482db8f9ed5240699c21",
+   "actual_usd": 0.05,
+   "ts": 1793613784
   }
  ]
 }

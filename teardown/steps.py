@@ -107,6 +107,10 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
     worse than a missing one).
     """
     cleaned = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    if not cleaned.startswith("{"):
+        a, b = cleaned.find("{"), cleaned.rfind("}")
+        if a != -1 and b > a:
+            cleaned = cleaned[a:b + 1]
     data = json.loads(cleaned)
     chunks = None
     if timed_transcript:
@@ -120,17 +124,16 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
         if chunks and anchor:
             near = " ".join(txt for ct, txt in chunks if t - window_s <= ct <= t + window_s)
             if anchor not in near:
-                real = None
+                matches = []
                 for i, (ct, txt) in enumerate(chunks):
                     seg = txt
                     if i + 1 < len(chunks):
                         seg = seg + " " + chunks[i + 1][1]
                     if anchor in seg:
-                        real = ct
-                        break
-                if real is None:
+                        matches.append(ct)
+                if not matches:
                     continue  # unverifiable step: drop
-                t = real
+                t = min(matches, key=lambda m: abs(m - t))  # nearest occurrence wins
         steps.append(
             {
                 "t": t,
@@ -170,18 +173,32 @@ def pick_frame(api: MetaApi, candidates: list[tuple[float, str]], part: str, tit
         tiles = []
         for j, (_, path) in enumerate(candidates):
             img = cv2.imread(path)
-            img = cv2.resize(img, (480, 270))
+            if img is None:
+                img = np.zeros((270, 480, 3), dtype=np.uint8)
+            else:
+                # letterbox into 480x270 without squashing aspect ratio
+                h0, w0 = img.shape[:2]
+                sc = min(480 / w0, 270 / h0)
+                img = cv2.resize(img, (max(1, int(w0 * sc)), max(1, int(h0 * sc))))
+                tile = np.zeros((270, 480, 3), dtype=np.uint8)
+                th, tw = img.shape[:2]
+                y0, x0 = (270 - th) // 2, (480 - tw) // 2
+                tile[y0:y0 + th, x0:x0 + tw] = img
+                img = tile
             cv2.rectangle(img, (0, 0), (46, 34), (255, 255, 255), -1)
             cv2.putText(img, str(j + 1), (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
             tiles.append(img)
-        top = np.hstack(tiles[:3])
+        if not tiles:
+            return middle
+        top_row = tiles[:3] + [np.zeros_like(tiles[0])] * (3 - len(tiles[:3]))
         bottom_row = tiles[3:] + [np.zeros_like(tiles[0])] * (3 - len(tiles[3:]))
-        sheet = np.vstack([top, np.hstack(bottom_row)])
+        sheet = np.vstack([np.hstack(top_row), np.hstack(bottom_row)])
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             cv2.imwrite(tmp.name, sheet)
             sheet_path = tmp.name
         with open(sheet_path, "rb") as fh:
             data_url = "data:image/png;base64," + base64.b64encode(fh.read()).decode()
+        os.unlink(sheet_path)
         n = len(candidates)
         text = api.respond(
             SPARK_MODEL,

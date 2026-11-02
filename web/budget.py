@@ -189,6 +189,7 @@ def status():
     state, _ = _read()
     outstanding = sum(state["reserved"].values())
     return {
+        "basis": "conservative in-app estimate (worst-case reservations, settled per job); not provider-billed spend",
         "cap_usd": CAP_USD,
         "spent_usd": state["spent_usd"],
         "reserved_usd": outstanding,

@@ -2558,6 +2558,9 @@ class H(BaseHTTPRequestHandler):
         m = re.match(r"^/jobs/([\w-]+)(?:/(.*))?$", u.path)
         if m and m.group(2) is None:
             job = m.group(1)
+            if not self._owns(job):
+                self._send('<p class=mut>guide not found or expired - <a href=/>back to jobs</a></p>', status=404)
+                return
             plan = load_plan(job)
             if not plan:
                 st = JOBS.get(job)
@@ -2699,12 +2702,17 @@ class H(BaseHTTPRequestHandler):
                     .replace("__PROGRESS__", progress_html)
                     .replace("__STEPTIMES__", step_times)
                     .replace("__STEPHARDWARE__", step_hardware))
+            if os.environ.get("TEARDOWN_NO_PDF") == "1":
+                resp = re.sub(r'<a class="pill header-pdf".*?</a>', '', resp, flags=re.S)
             self._send(resp)
             return
         if m and m.group(2) == "guide.pdf":
             job = m.group(1)
             if os.environ.get("TEARDOWN_NO_PDF") == "1":
                 self._send("pdf download is disabled in this demo", "text/plain", 404)
+                return
+            if not self._owns(job):
+                self._send("not found", "text/plain", 404)
                 return
             pdf = os.path.join(DATA, job, "guide.pdf")
             if not os.path.exists(pdf):
@@ -2720,6 +2728,9 @@ class H(BaseHTTPRequestHandler):
                 self._send("guide not ready", "text/plain", 404)
             return
         if m and m.group(2):
+            if not self._owns(m.group(1)):
+                self._send("not found", "text/plain", 404)
+                return
             fp = os.path.join(DATA, m.group(1), m.group(2))
             if os.path.isfile(fp) and os.path.realpath(fp).startswith(os.path.realpath(DATA)):
                 ct = {".png": "image/png", ".mp4": "video/mp4", ".pdf": "application/pdf"}.get(
@@ -2747,6 +2758,13 @@ class H(BaseHTTPRequestHandler):
             ids.append(job)
         return ("td_jobs=" + ".".join(ids[-12:])
                 + "; Path=/; Max-Age=86400; SameSite=Lax")
+
+    def _owns(self, job):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            part = part.strip()
+            if part.startswith("td_jobs="):
+                return job in part[8:].split(".")
+        return False
 
     def do_POST(self):
         if self.path != "/jobs":

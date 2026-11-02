@@ -1,8 +1,12 @@
 {
  "cap_usd": 20.0,
- "spent_usd": 0.0,
- "reserved": {
-  "test-job-1": 0.5
- },
- "history": []
+ "spent_usd": 0.01,
+ "reserved": {},
+ "history": [
+  {
+   "job": "test-job-1",
+   "actual_usd": 0.01,
+   "ts": 1793612150
+  }
+ ]
 }

@@ -4,7 +4,7 @@ Real wiring only: jobs run the actual teardown pipeline (transcribe, plan,
 segment, render). Status shown is the pipeline's real stage. No mock states.
 """
 import html as html_mod
-import json, os, re, shutil, subprocess, sys, threading, time, uuid
+import hashlib, hmac, json, os, re, shutil, subprocess, sys, threading, time, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -28,6 +28,24 @@ YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com",
 os.environ.setdefault("TEARDOWN_SPARK_MODEL", "muse-spark-1.3-contributor")
 sys.path.insert(0, ROOT)
 import budget
+
+COOKIE_KEY = (os.environ.get("TD_COOKIE_SECRET") or os.urandom(24).hex()).encode()
+
+def _sign_ids(ids):
+    return hmac.new(COOKIE_KEY, ".".join(ids).encode(), hashlib.sha256).hexdigest()[:32]
+
+def _valid_cookie_ids(header):
+    for part in (header or "").split(";"):
+        part = part.strip()
+        if part.startswith("td_jobs="):
+            segs = part[8:].split(".")
+            if len(segs) >= 2:
+                ids, sig = segs[:-1], segs[-1]
+                if (all(re.fullmatch(r"[0-9a-f]{32}", x) for x in ids)
+                        and hmac.compare_digest(_sign_ids(ids), sig)):
+                    return ids
+    return []
+
 
 
 def probe_duration(video_path):
@@ -2545,11 +2563,7 @@ class H(BaseHTTPRequestHandler):
             refresh = '<meta http-equiv="refresh" content="4">' if busy else ""
             err = parse_qs(u.query).get("e", [""])[0] if u.query else ""
             err_html = f'<div class=err>{html_mod.escape(err)}</div>' if err else ""
-            mine = []
-            for part in (self.headers.get("Cookie") or "").split(";"):
-                part = part.strip()
-                if part.startswith("td_jobs="):
-                    mine = [x for x in part[8:].split(".") if x in JOBS]
+            mine = [x for x in _valid_cookie_ids(self.headers.get("Cookie")) if x in JOBS]
             cards = "".join(job_card(j) for j in reversed(mine)) or \
                 '<span class="mut">guides you build in this browser show up here</span>'
             self._send(INDEX.replace("__CSS__", CSS).replace("__REFRESH__", refresh)
@@ -2749,23 +2763,15 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _job_cookie(self, job):
-        ids = []
-        for part in (self.headers.get("Cookie") or "").split(";"):
-            part = part.strip()
-            if part.startswith("td_jobs="):
-                ids = [x for x in part[8:].split(".")
-                       if re.fullmatch(r"[0-9a-f]{32}", x)]
+        ids = _valid_cookie_ids(self.headers.get("Cookie"))
         if job not in ids:
             ids.append(job)
-        return ("td_jobs=" + ".".join(ids[-12:])
+        ids = ids[-12:]
+        return ("td_jobs=" + ".".join(ids) + "." + _sign_ids(ids)
                 + "; Path=/; Max-Age=86400; SameSite=Lax")
 
     def _owns(self, job):
-        for part in (self.headers.get("Cookie") or "").split(";"):
-            part = part.strip()
-            if part.startswith("td_jobs="):
-                return job in part[8:].split(".")
-        return False
+        return job in _valid_cookie_ids(self.headers.get("Cookie"))
 
     def do_POST(self):
         if self.path != "/jobs":

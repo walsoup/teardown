@@ -442,6 +442,11 @@ input[type=text]:focus {
   background: #000;
 }
 
+@media (max-height: 480px) {
+  .video-frame { max-height: 30vh; }
+  .video-frame video { max-height: 30vh; }
+}
+
 .video-loading {
   position: absolute;
   top: 10px;
@@ -845,6 +850,7 @@ details[open] .disclosure-summary {
   .step-pane {
     order: 2;
     padding: 16px 14px 0 14px;
+    scroll-margin-top: calc(min(56.25vw, 38vh) + 64px);
   }
   .disclosure-pane {
     order: 3;

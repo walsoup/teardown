@@ -108,23 +108,159 @@ class MeteredApi:
     def upload_file(self, path, purpose="user_data"):
         return self._inner.upload_file(path, purpose)  # files API: not billed
 
-    def transcribe_timed(self, wav_path, window_s=30.0):
-        return self._inner.transcribe_timed(wav_path, window_s)
+    def transcribe_timed(self, wav_path, window_s=30.0, progress=None):
+        return self._inner.transcribe_timed(wav_path, window_s, progress=progress)
 
 
-def run_pipeline_guarded(job_id, video_path):
-    if not ACTIVE_LOCK.acquire(blocking=False):
-        JOBS[job_id].update(status="error",
-                            error="another guide is being built - try again shortly")
-        try:
-            budget.settle(job_id, 0.0)
-        except Exception:
-            pass
-        return
+def set_stage(job_id, stage, pct=None, detail=""):
+    """pct is a bounded overall estimate shown only when it comes from real
+    sub-progress (download %, transcript window i/n, step i/n); None renders
+    an indeterminate bar."""
+    j = JOBS.get(job_id)
+    if j is not None:
+        j.update(stage=stage, pct=pct, detail=detail)
+
+
+def _stream(rfile, ln, path):
+    """Copy exactly ln bytes from the request body to disk in 1 MB chunks."""
+    remaining = ln
+    with open(path, "wb") as fh:
+        while remaining > 0:
+            chunk = rfile.read(min(1 << 20, remaining))
+            if not chunk:
+                return False
+            fh.write(chunk)
+            remaining -= len(chunk)
+    return True
+
+
+def _carve(tmp, start, out_path):
+    """Extract the file part of a streamed multipart body: bytes from start
+    up to the first boundary line, without loading the body into memory."""
+    boundary = b"\r\n------"
+    with open(tmp, "rb") as fh:
+        fh.seek(start)
+        prev = b""
+        with open(out_path, "wb") as out:
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    out.write(prev)
+                    break
+                buf = prev + chunk
+                idx = buf.find(boundary)
+                if idx != -1:
+                    out.write(buf[:idx])
+                    break
+                keep = len(boundary) - 1
+                out.write(buf[:-keep])
+                prev = buf[-keep:]
+
+
+def _download(job_id, url, video_path):
+    """yt-dlp with live progress into JOBS; classifies the real stderr on
+    failure. No alternate-client bypasses: if YouTube bot-checks this
+    server we say so plainly."""
+    cmd = ["yt-dlp", "--no-playlist", "--max-filesize", "140m",
+           "-f", "bv*[height<=720]+ba/b[height<=720]/b",
+           "--merge-output-format", "mp4", "--newline",
+           "-o", video_path, url]
     try:
-        run_pipeline(job_id, video_path)
-    finally:
-        ACTIVE_LOCK.release()
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        JOBS[job_id].update(status="error",
+                            error="the demo's downloader is unavailable right now")
+        return False
+    lines = []
+    t0 = time.time()
+    try:
+        for line in proc.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            lines.append(line)
+            m = re.search(r"\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+\s*\S+)(?:\s+at\s+(\S+))?", line)
+            if m:
+                frac = min(1.0, float(m.group(1)) / 100.0)
+                det = f"{m.group(1)}% of {m.group(2)}"
+                if m.group(3):
+                    det += f" at {m.group(3)}"
+                set_stage(job_id, "downloading the video", round(5 * frac, 1), det)
+            if time.time() - t0 > 600:
+                proc.kill()
+                break
+        proc.wait(timeout=60)
+    except Exception:
+        proc.kill()
+    if proc.returncode == 0 and os.path.exists(video_path):
+        return True
+    tail = " | ".join(lines[-4:])
+    print(f"[yt-dlp fail job {job_id[:8]}] {tail[:800]}", flush=True)
+    if os.path.exists(video_path):
+        os.remove(video_path)
+    low = tail.lower()
+    if ("confirm" in low and "bot" in low) or "sign in to" in low or "http error 403" in low:
+        msg = ("YouTube is blocking this demo's server, not your video - it makes "
+               "datacenter servers prove they are not bots, and this one can't. "
+               "Save the video yourself and upload the file here instead.")
+    elif "max-filesize" in low or "larger than" in low:
+        msg = "that video is over this demo's 140 MB download limit - use a shorter or lower-quality clip"
+    elif "unsupported url" in low:
+        msg = "that link doesn't look like a YouTube video page"
+    elif "private" in low or "unavailable" in low or "removed" in low or "copyright" in low:
+        msg = "YouTube says that video is unavailable - check it plays publicly without signing in"
+    else:
+        msg = "could not download that link - check it plays publicly and is under 20 minutes"
+    JOBS[job_id].update(status="error", error=msg, pct=None, detail="")
+    return False
+
+
+def run_job(job_id, video_path, url, ip):
+    """Worker: download (if a link), probe, reserve budget, run the pipeline.
+    Everything before reserve() is free; failures settle nothing."""
+    try:
+        if url:
+            JOBS[job_id]["status"] = "downloading"
+            set_stage(job_id, "downloading the video", 0)
+            if not _download(job_id, url, video_path):
+                return
+        set_stage(job_id, "checking the video")
+        try:
+            duration = probe_duration(video_path)
+        except Exception:
+            raise ValueError(
+                "couldn't read that video - is it a standard video file (mp4, mov, webm)?")
+        if not duration or duration > MAX_DURATION_S:
+            raise ValueError(
+                f"that video is about {round(duration / 60)} minutes - this demo handles up to 20")
+        JOBS[job_id]["duration"] = duration
+        if ACTIVE_LOCK.locked():
+            set_stage(job_id, "waiting for another guide to finish",
+                      detail="one build at a time on this free server")
+        if not ACTIVE_LOCK.acquire(timeout=3600):
+            raise ValueError("the demo stayed busy too long - try again later")
+        try:
+            set_stage(job_id, "reserving api budget")
+            reservation = budget.job_reservation(
+                duration, MAX_STEPS, os.environ["TEARDOWN_SPARK_MODEL"])
+            try:
+                ok = budget.reserve(job_id, reservation)
+            except budget.LedgerUnavailable:
+                raise ValueError("demo is paused - its budget ledger is unreachable")
+            if not ok:
+                raise ValueError("the demo's shared API budget is spent - no more guides for now")
+            now = time.time()
+            hits = [t for t in RATE.get(ip, []) if now - t < 3600]
+            hits.append(now)
+            RATE[ip] = hits
+            JOBS[job_id]["reservation"] = reservation
+            run_pipeline(job_id, video_path)
+        finally:
+            ACTIVE_LOCK.release()
+    except Exception as e:
+        JOBS[job_id].update(status="error", error=str(e)[:300], pct=None)
+        print(f"[job {job_id[:8]}] failed before pipeline: {e}", flush=True)
 
 
 
@@ -147,7 +283,7 @@ def run_pipeline(job_id, video_path):
         api = MeteredApi(JOBS[job_id]["_meter"])
         out = os.path.join(DATA, job_id)
         os.makedirs(os.path.join(out, "steps"), exist_ok=True)
-        JOBS[job_id]["stage"] = "extracting audio"
+        set_stage(job_id, "extracting the audio")
         wav = ingest.extract_audio(video_path, os.path.join(out, "audio.wav"))
         if wav:
             # cheap silence pre-check: near-digital-silence means no narration,
@@ -159,17 +295,24 @@ def run_pipeline(job_id, video_path):
             m = re.search(r"mean_volume: (-?[\d.]+) dB", probe.stderr)
             if m and float(m.group(1)) < -60.0:
                 wav = None
-        JOBS[job_id]["stage"] = "transcribing"
-        transcript = api.transcribe_timed(wav) if wav else []
+        set_stage(job_id, "transcribing the narration")
+
+        def _asr_progress(i, n):
+            set_stage(job_id, f"transcribing the narration (window {i} of {n})",
+                      round(10 + 35 * i / n, 1))
+
+        transcript = api.transcribe_timed(wav, progress=_asr_progress) if wav else []
         if not any(c["text"].strip() for c in transcript):
             # Fail closed: with no narration, every step's timing and content
             # would be unverifiable - and the guide would look complete anyway.
             raise ValueError(
                 "no narration detected in this video - teardown needs narrated "
                 "footage; without speech the guide's steps and times can't be verified")
-        JOBS[job_id]["stage"] = "watching video and planning steps"
+        set_stage(job_id, "sending the video to the model")
         video_id = api.upload_file(video_path)
         duration = ingest.probe_duration(video_path)
+        set_stage(job_id, "watching the video and planning steps",
+                  detail="the model thinks this through in one pass - the slow part")
         plan = steps_mod.plan_steps(api, video_id, transcript, duration)
         if len(plan["steps"]) > MAX_STEPS:
             plan["steps"] = plan["steps"][:MAX_STEPS]
@@ -177,7 +320,8 @@ def run_pipeline(job_id, video_path):
         n = len(plan["steps"])
         for i, s in enumerate(plan["steps"]):
             try:
-                JOBS[job_id]["stage"] = f"choosing frames ({i + 1}/{n})"
+                set_stage(job_id, f"choosing frames for step {i + 1} of {n}",
+                          round(55 + 35 * i / n, 1))
                 # candidate frames around the step timestamp; Spark picks the clearest
                 cands = []
                 seen_t = set()
@@ -200,7 +344,8 @@ def run_pipeline(job_id, video_path):
                 if not (0 <= pick < len(cands)):
                     pick = len(cands) // 2
                 frame = cands[pick][1]
-                JOBS[job_id]["stage"] = f"highlighting parts ({i + 1}/{n})"
+                set_stage(job_id, f"highlighting parts for step {i + 1} of {n}",
+                          round(55 + 35 * (i + 0.5) / n, 1))
                 hit = segment_mod.segment_part(api, frame, s["part"])  # fail-closed
                 if hit:
                     from teardown import render
@@ -219,9 +364,10 @@ def run_pipeline(job_id, video_path):
         with open(tmp_plan, "w") as fh:
             json.dump(plan, fh, indent=1)
         os.replace(tmp_plan, os.path.join(out, "plan.json"))
-        JOBS[job_id].update(status="done", device=plan["device"], steps=n)
+        JOBS[job_id].update(status="done", device=plan["device"], steps=n, pct=100)
     except Exception as e:
-        JOBS[job_id].update(status="error", error=str(e)[:300])
+        JOBS[job_id].update(status="error", error=str(e)[:300], pct=None)
+        print(f"[job {job_id[:8]}] pipeline failed: {e}", flush=True)
     finally:
         JOBS[job_id]["spent"] = round(meter.actual, 6)
         try:
@@ -1855,6 +2001,133 @@ a:hover {
 }
 """
 
+CSS_EXTRA = """
+.busy-wrap { max-width: 560px; margin: 64px auto; padding: 0 24px; }
+.busy-card { padding: 40px 32px; text-align: center; }
+.busy-title { font-weight: 500; font-size: 24px; margin: 16px 0 4px; }
+.busy-stage { color: var(--body-ink); font-size: 15px; min-height: 22px; }
+.busy-bar { height: 6px; background: var(--hair); border-radius: 3px; margin: 18px 0 10px; overflow: hidden; }
+.busy-fill { height: 100%; width: 2%; background: var(--forest); border-radius: 3px; transition: width .6s ease; }
+.busy-fill.indet { width: 40% !important; animation: busy-slide 1.4s ease-in-out infinite; }
+@keyframes busy-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+.busy-detail { color: var(--mut); font-size: 12px; min-height: 16px; }
+.busy-elapsed { color: var(--mut); font-size: 12px; margin-top: 2px; }
+.busy-note { color: var(--mut); font-size: 13px; margin-top: 18px; }
+.busy-note a { color: var(--terracotta); }
+.spinner { width: 26px; height: 26px; margin: 0 auto; border: 3px solid var(--hair); border-top-color: var(--forest); border-radius: 50%; animation: busy-spin .9s linear infinite; }
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+.err-icon { font-size: 30px; color: var(--terracotta); }
+.err-msg { color: var(--body-ink); font-size: 15px; margin-top: 12px; line-height: 1.6; }
+.up-bar { height: 6px; background: var(--hair); border-radius: 3px; margin: 14px 0 8px; overflow: hidden; }
+.up-fill { height: 100%; width: 0%; background: var(--forest); border-radius: 3px; transition: width .3s ease; }
+"""
+
+_HEAD = """<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width, initial-scale=1">
+<title>__TITLE__ - teardown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<style>__CSS__</style></head><body>
+<header class="landing-header">
+  <div class="header-left">
+    <a href="/" class="brand font-serif">teardown<span class="dot">.</span></a>
+  </div>
+</header>
+"""
+
+BUSY = _HEAD + """
+<div class="busy-wrap">
+  <div class="card busy-card">
+    <div class="spinner" aria-hidden="true"></div>
+    <h2 class="font-serif busy-title">building your guide</h2>
+    <p class="busy-stage" id="stage">__STAGE__</p>
+    <div class="busy-bar"><div class="busy-fill indet" id="fill"></div></div>
+    <p class="busy-detail mono-label" id="detail">__DETAIL__</p>
+    <p class="busy-elapsed mono-label"><span id="elapsed">__ELAPSED__</span> elapsed</p>
+    <p class="busy-note">a short clip takes a few minutes on this free demo server - longer videos take longer. you can leave this tab open; it updates itself.</p>
+  </div>
+</div>
+<script>
+var JOB = "__JOB__";
+var dead = false;
+function fmt(s){ s = s|0; var m = Math.floor(s/60); return m > 0 ? m + "m " + (s%60) + "s" : s + "s"; }
+function showMissing(){
+  dead = true;
+  document.querySelector(".busy-card").innerHTML =
+    '<h2 class="font-serif busy-title">this guide went away</h2>' +
+    '<p class="busy-note">the demo server restarted or the guide expired - <a href="/">start a new one</a>.</p>';
+}
+function poll(){
+  if (dead) return;
+  fetch("/jobs/" + JOB + "/status.json", {cache: "no-store"}).then(function(r){
+    if (r.status === 404) { showMissing(); return null; }
+    return r.json();
+  }).then(function(st){
+    if (!st) return;
+    if (st.status === "done" || st.status === "error") { location.reload(); return; }
+    if (st.status === "missing") { showMissing(); return; }
+    document.getElementById("stage").textContent = st.stage || "working";
+    document.getElementById("detail").textContent = st.detail || "";
+    document.getElementById("elapsed").textContent = fmt(st.elapsed_s);
+    var fill = document.getElementById("fill");
+    if (st.pct === null || st.pct === undefined) {
+      fill.classList.add("indet");
+    } else {
+      fill.classList.remove("indet");
+      fill.style.width = Math.max(2, Math.min(100, st.pct)) + "%";
+    }
+  }).catch(function(){});
+  setTimeout(poll, 2000);
+}
+poll();
+</script>
+</body></html>"""
+
+ERRPAGE = _HEAD + """
+<div class="busy-wrap">
+  <div class="card busy-card">
+    <span class="material-symbols-outlined err-icon">error</span>
+    <h2 class="font-serif busy-title">this guide didn't make it</h2>
+    <p class="err-msg">__MSG__</p>
+    <p class="busy-note"><a href="/">try another video</a></p>
+  </div>
+</div>
+</body></html>"""
+
+MISSING = _HEAD + """
+<div class="busy-wrap">
+  <div class="card busy-card">
+    <span class="material-symbols-outlined err-icon">search_off</span>
+    <h2 class="font-serif busy-title">guide not found</h2>
+    <p class="err-msg">this guide expired, or the demo server restarted and lost it.</p>
+    <p class="busy-note"><a href="/">start a new one</a></p>
+  </div>
+</div>
+</body></html>"""
+
+
+def _page(tpl, title):
+    return tpl.replace("__CSS__", CSS + CSS_EXTRA).replace("__TITLE__", title)
+
+
+def _busy_page(job, st):
+    elapsed = int(time.time() - st.get("created", time.time()))
+    return (_page(BUSY, "building guide")
+            .replace("__JOB__", job)
+            .replace("__STAGE__", html_mod.escape(st.get("stage") or "queued"))
+            .replace("__DETAIL__", html_mod.escape(st.get("detail") or ""))
+            .replace("__ELAPSED__", f"{elapsed // 60}m {elapsed % 60}s" if elapsed >= 60 else f"{elapsed}s"))
+
+
+def _error_page(msg):
+    return _page(ERRPAGE, "guide failed").replace("__MSG__", html_mod.escape(msg))
+
+
+def _missing_page():
+    return _page(MISSING, "guide not found")
+
 
 INDEX = """<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1">
@@ -1957,6 +2230,48 @@ if (dropZone && fileInput) {
       const b = document.getElementById('browse-label');
       if (b) b.textContent = fileInput.files[0].name;
     }
+  });
+}
+
+// raw-bytes upload with a real progress bar; falls back to the plain
+// form post when no file is chosen or JS fails before send()
+const landingForm = document.querySelector('.landing-form');
+if (landingForm) {
+  landingForm.addEventListener('submit', function(ev){
+    const fi = document.getElementById('f');
+    const urlVal = (document.getElementById('url-input').value || '').trim();
+    if (!fi || !fi.files.length || urlVal) return;  // url path: normal submit
+    ev.preventDefault();
+    const file = fi.files[0];
+    const dz = document.getElementById('drop-zone');
+    dz.innerHTML = '<div class="drop-title font-serif" id="up-title"></div>' +
+      '<div class="up-bar"><div class="up-fill" id="up-fill"></div></div>' +
+      '<p class="drop-sub mono-label" id="up-label">starting upload</p>';
+    document.getElementById('up-title').textContent = 'uploading ' + file.name;
+    const btn = document.querySelector('.submit-pill');
+    if (btn) btn.disabled = true;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/jobs?filename=' + encodeURIComponent(file.name));
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = function(e){
+      if (!e.lengthComputable) return;
+      const p = Math.round(100 * e.loaded / e.total);
+      document.getElementById('up-fill').style.width = p + '%';
+      document.getElementById('up-label').textContent =
+        'uploading - ' + p + '% (' + Math.round(e.loaded / 1048576) +
+        ' of ' + Math.round(e.total / 1048576) + ' MB)';
+    };
+    xhr.onload = function(){
+      if (xhr.responseURL && xhr.responseURL.indexOf('/jobs/') !== -1) {
+        location.href = xhr.responseURL;
+      } else {
+        document.open(); document.write(xhr.responseText); document.close();
+      }
+    };
+    xhr.onerror = function(){
+      location.href = '/?e=' + encodeURIComponent('upload failed - check your connection and try again');
+    };
+    xhr.send(file);
   });
 }
 </script>
@@ -2559,16 +2874,35 @@ class H(BaseHTTPRequestHandler):
             self._send(body, "application/json")
             return
         if u.path == "/":
-            busy = any(j["status"] in ("queued", "processing") for j in list(JOBS.values()))
+            busy = any(j["status"] in ("queued", "downloading", "processing") for j in list(JOBS.values()))
             refresh = '<meta http-equiv="refresh" content="4">' if busy else ""
             err = parse_qs(u.query).get("e", [""])[0] if u.query else ""
             err_html = f'<div class=err>{html_mod.escape(err)}</div>' if err else ""
             mine = [x for x in _valid_cookie_ids(self.headers.get("Cookie")) if x in JOBS]
             cards = "".join(job_card(j) for j in reversed(mine)) or \
                 '<span class="mut">guides you build in this browser show up here</span>'
-            self._send(INDEX.replace("__CSS__", CSS).replace("__REFRESH__", refresh)
+            self._send(INDEX.replace("__CSS__", CSS + CSS_EXTRA).replace("__REFRESH__", refresh)
                        .replace("__ERROR__", err_html)
                        .replace("__JOBS__", cards))
+            return
+        ms = re.match(r"^/jobs/([\w-]+)/status\.json$", u.path)
+        if ms:
+            job = ms.group(1)
+            if not self._owns(job):
+                self._send('{"error":"not found"}', "application/json", 404)
+                return
+            if load_plan(job):
+                self._send('{"status":"done"}', "application/json")
+                return
+            st = JOBS.get(job)
+            if not st:
+                self._send('{"status":"missing"}', "application/json")
+                return
+            self._send(json.dumps({
+                "status": st.get("status"), "stage": st.get("stage", ""),
+                "pct": st.get("pct"), "detail": st.get("detail", ""),
+                "elapsed_s": int(time.time() - st.get("created", time.time())),
+                "error": st.get("error", "")}), "application/json")
             return
         m = re.match(r"^/jobs/([\w-]+)(?:/(.*))?$", u.path)
         if m and m.group(2) is None:
@@ -2579,23 +2913,12 @@ class H(BaseHTTPRequestHandler):
             plan = load_plan(job)
             if not plan:
                 st = JOBS.get(job)
-                if st and st.get("status") in ("queued", "processing"):
-                    stage = html_mod.escape(st.get("stage", ""))
-                    self._send(
-                        '<!doctype html><meta charset=utf-8>'
-                        '<meta http-equiv="refresh" content="4">'
-                        '<title>building guide</title>'
-                        '<body style="font-family:system-ui;background:#f6f1e7;color:#1d1c16;text-align:center;padding:64px 24px">'
-                        '<h2 style="font-weight:500">building your guide&hellip;</h2>'
-                        '<p style="color:#5c645b">' + stage + '</p>'
-                        '<p style="color:#7e877d;font-size:13px">this page refreshes itself; large videos can take a few minutes</p>',
-                        status=200)
+                if st and st.get("status") in ("queued", "downloading", "processing"):
+                    self._send(_busy_page(job, st), status=200)
                 elif st and st.get("status") == "error":
-                    self._send('<p class=err>this guide failed: '
-                               + html_mod.escape(st.get("error", "unknown error"))
-                               + ' - <a href=/>back</a></p>', status=500)
+                    self._send(_error_page(st.get("error", "unknown error")), status=200)
                 else:
-                    self._send('<p class=mut>guide not found or expired - <a href=/>back to jobs</a></p>', status=404)
+                    self._send(_missing_page(), status=404)
                 return
             n_steps = len(plan["steps"])
 
@@ -2774,7 +3097,7 @@ class H(BaseHTTPRequestHandler):
         return job in _valid_cookie_ids(self.headers.get("Cookie"))
 
     def do_POST(self):
-        if self.path != "/jobs":
+        if self.path.split("?")[0] != "/jobs":
             self._send("not found", "text/plain", 404)
             return
         try:
@@ -2785,70 +3108,64 @@ class H(BaseHTTPRequestHandler):
             if len(hits) >= RATE_LIMIT_PER_HOUR:
                 self._redirect("slow down - this demo allows a couple of guides per hour")
                 return
-            if ACTIVE_LOCK.locked():
-                self._redirect("another guide is being built right now - try again in a few minutes")
+            active = sum(1 for s in list(JOBS.values())
+                         if s.get("status") in ("queued", "downloading", "processing"))
+            if active >= 2:
+                self._redirect("the demo is already building two guides - try again in a few minutes")
                 return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > MAX_UPLOAD_BYTES:
                 self._redirect("video too large - keep it under 150 MB")
                 return
-            body = self.rfile.read(ln)
-            url_m = re.search(rb'name="url"\r\n\r\n([^\r]*)', body)
-            url = url_m.group(1).decode().strip() if url_m else ""
-            fm = re.search(rb'name="video"; filename="([^"]+)"\r\nContent-Type:[^\r]+\r\n\r\n', body)
-            has_file = bool(fm and fm.group(1))
-            if not url and not has_file:
-                self._redirect("add a video file or a youtube link first")
-                return
-            if url:
-                pu = urlparse(url)
-                if (pu.scheme != "https" or pu.hostname not in YOUTUBE_HOSTS
-                        or pu.username or pu.password):
-                    self._redirect("only public youtube links work in this demo")
-                    return
             job = uuid.uuid4().hex
             d = os.path.join(DATA, job)
             os.makedirs(d, exist_ok=True)
             video_path = os.path.join(d, "video.mp4")
-            if has_file and not url:
-                end = body.rfind(b"\r\n------")
-                open(video_path, "wb").write(body[fm.end():end])
-            else:
-                r = subprocess.run(
-                    ["yt-dlp", "--max-filesize", "140m",
-                     "-f", "bv*[height<=720]+ba/b[height<=720]/b",
-                     "--merge-output-format", "mp4",
-                     "-o", video_path, url], capture_output=True, timeout=600)
-                if r.returncode != 0 or not os.path.exists(video_path):
+            url = ""
+            ctype = self.headers.get("Content-Type", "")
+            if ctype.startswith("application/octet-stream"):
+                # JS uploader: raw file bytes, streamed to disk in chunks
+                if not _stream(self.rfile, ln, video_path):
                     shutil.rmtree(d, ignore_errors=True)
-                    self._redirect("could not download that link - check it plays publicly and is under 20 minutes")
+                    self._redirect("the upload was cut off - try again")
                     return
-            try:
-                duration = probe_duration(video_path)
-            except Exception:
-                duration = 0
-            if not duration or duration > MAX_DURATION_S:
-                shutil.rmtree(d, ignore_errors=True)
-                self._redirect("video too long - this demo handles up to 20 minutes")
-                return
-            reservation = budget.job_reservation(
-                duration, MAX_STEPS, os.environ["TEARDOWN_SPARK_MODEL"])
-            try:
-                ok = budget.reserve(job, reservation)
-            except budget.LedgerUnavailable:
-                shutil.rmtree(d, ignore_errors=True)
-                self._redirect("demo is paused - its budget ledger is unreachable")
-                return
-            if not ok:
-                shutil.rmtree(d, ignore_errors=True)
-                self._redirect("the demo's shared API budget is spent - no more guides for now")
-                return
-            hits.append(now)
-            RATE[ip] = hits
-            JOBS[job] = {"status": "queued", "stage": "",
-                         "reservation": reservation, "created": now}
-            threading.Thread(target=run_pipeline_guarded,
-                             args=(job, video_path), daemon=True).start()
+            else:
+                # multipart form (no-JS): stream to a temp file, then parse it
+                tmp = os.path.join(d, "upload.bin")
+                if not _stream(self.rfile, ln, tmp):
+                    shutil.rmtree(d, ignore_errors=True)
+                    self._redirect("the upload was cut off - try again")
+                    return
+                size = os.path.getsize(tmp)
+                with open(tmp, "rb") as fh:
+                    head = fh.read(4096)
+                    fh.seek(max(0, size - 4096))
+                    tail = fh.read()
+                fm = re.search(rb'name="video"; filename="([^"]+)"\r\nContent-Type:[^\r]+\r\n\r\n', head)
+                has_file = bool(fm and fm.group(1))
+                url_m = re.search(rb'name="url"\r\n\r\n([^\r]*)', tail if has_file else head)
+                url = url_m.group(1).decode().strip() if url_m else ""
+                if url:
+                    pass  # download path; uploaded bytes (if any) are discarded
+                elif has_file:
+                    _carve(tmp, fm.end(), video_path)
+                else:
+                    shutil.rmtree(d, ignore_errors=True)
+                    self._redirect("add a video file or a youtube link first")
+                    return
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            if url:
+                pu = urlparse(url)
+                if (pu.scheme != "https" or pu.hostname not in YOUTUBE_HOSTS
+                        or pu.username or pu.password):
+                    shutil.rmtree(d, ignore_errors=True)
+                    self._redirect("only public youtube links work in this demo")
+                    return
+            JOBS[job] = {"status": "queued", "stage": "queued", "pct": None,
+                         "detail": "", "created": now}
+            threading.Thread(target=run_job,
+                             args=(job, video_path, url, ip), daemon=True).start()
             self.send_response(303)
             self.send_header("Location", "/jobs/" + job)
             self.send_header("Set-Cookie", self._job_cookie(job))
@@ -2856,14 +3173,13 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             self._redirect(str(e)[:120])
 
-
 def reaper():
     while True:
         time.sleep(900)
         now = time.time()
         for d in os.listdir(DATA):
             p = os.path.join(DATA, d)
-            active = JOBS.get(d, {}).get("status") in ("queued", "processing")
+            active = JOBS.get(d, {}).get("status") in ("queued", "downloading", "processing")
             try:
                 if os.path.isdir(p) and not active and now - os.path.getmtime(p) > JOB_TTL_S:
                     shutil.rmtree(p, ignore_errors=True)

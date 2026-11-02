@@ -46,11 +46,11 @@ class MetaApi:
         r.raise_for_status()
         return r.json()["id"]
 
-    def respond(self, model: str, content: list[dict], **extra) -> str:
+    def respond(self, model: str, content: list[dict], timeout: int = 300, **extra) -> str:
         """One non-streaming Responses call. Returns the output_text."""
         r = self.session.post(
             f"{BASE_URL}/responses",
-            timeout=300,
+            timeout=timeout,
             json={
                 "model": model,
                 "input": [{"type": "message", "role": "user", "content": content}],
@@ -107,7 +107,7 @@ class MetaApi:
             return " ".join(self._transcribe_chunk(c) for c in chunks)
         return self._transcribe_chunk(wav_path)
 
-    def transcribe_timed(self, wav_path: str, window_s: float = 30.0) -> list[dict]:
+    def transcribe_timed(self, wav_path: str, window_s: float = 30.0, progress=None) -> list[dict]:
         """Transcribe with approximate timing by transcribing small windows.
 
         The ASR endpoint returns no timestamps, so timing is established by
@@ -127,6 +127,8 @@ class MetaApi:
             finally:
                 os.path.exists(chunk) and os.remove(chunk)
             windows.append({"t": start, "text": text})
+            if progress:
+                progress(i + 1, n)
         return windows
 
     def _transcribe_chunk(self, wav_path: str) -> str:

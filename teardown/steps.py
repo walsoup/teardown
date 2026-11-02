@@ -82,6 +82,7 @@ def plan_steps(api: MetaApi, video_file_id: str, transcript, duration: float,
                 {"type": "input_file", "file_id": video_file_id},
             ],
             max_output_tokens=16000,
+            timeout=900,
         )
         try:
             return parse_steps(text, duration,

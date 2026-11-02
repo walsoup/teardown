@@ -12,9 +12,9 @@ _cv2 = None
 def _cv():
     global _cv2
     if _cv2 is None:
-        import cv2 as m
-        _cv2 = m
-    return m
+        import cv2
+        _cv2 = cv2
+    return _cv2
 
 ACCENT = (200, 130, 0)      # iFixit-ish blue, BGR
 BADGE = (60, 60, 220)       # red-ish badge, BGR

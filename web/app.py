@@ -34,8 +34,24 @@ def run_pipeline(job_id, video_path):
         os.makedirs(os.path.join(out, "steps"), exist_ok=True)
         JOBS[job_id]["stage"] = "extracting audio"
         wav = ingest.extract_audio(video_path, os.path.join(out, "audio.wav"))
+        if wav:
+            # cheap silence pre-check: near-digital-silence means no narration,
+            # so skip the ASR calls entirely (volumedetect on the 16kHz mono wav)
+            probe = subprocess.run(
+                ["ffmpeg", "-i", os.path.join(out, "audio.wav"),
+                 "-af", "volumedetect", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=120)
+            m = re.search(r"mean_volume: (-?[\d.]+) dB", probe.stderr)
+            if m and float(m.group(1)) < -60.0:
+                wav = None
         JOBS[job_id]["stage"] = "transcribing"
         transcript = api.transcribe_timed(wav) if wav else []
+        if not any(c["text"].strip() for c in transcript):
+            # Fail closed: with no narration, every step's timing and content
+            # would be unverifiable - and the guide would look complete anyway.
+            raise ValueError(
+                "no narration detected in this video - teardown needs narrated "
+                "footage; without speech the guide's steps and times can't be verified")
         JOBS[job_id]["stage"] = "watching video and planning steps"
         video_id = api.upload_file(video_path)
         duration = ingest.probe_duration(video_path)

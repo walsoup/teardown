@@ -71,18 +71,24 @@ def plan_steps(api: MetaApi, video_file_id: str, transcript, duration: float,
         lines = "\n".join(
             f"[{int(c['t'] // 60)}:{int(c['t'] % 60):02d}] {c['text']}" for c in transcript
         ) or "(no narration)"
-    text = api.respond(
-        SPARK_MODEL,
-        [
-            {"type": "input_text", "text": PROMPT.format(
-                transcript=lines, duration=duration, window_s=window_s)},
-            {"type": "input_file", "file_id": video_file_id},
-        ],
-        max_output_tokens=16000,
-    )
-    return parse_steps(text, duration,
-                       transcript if not isinstance(transcript, str) else None,
-                       window_s)
+    last_err = None
+    for _attempt in range(3):
+        text = api.respond(
+            SPARK_MODEL,
+            [
+                {"type": "input_text", "text": PROMPT.format(
+                    transcript=lines, duration=duration, window_s=window_s)},
+                {"type": "input_file", "file_id": video_file_id},
+            ],
+            max_output_tokens=16000,
+        )
+        try:
+            return parse_steps(text, duration,
+                               transcript if not isinstance(transcript, str) else None,
+                               window_s)
+        except (ValueError, KeyError, TypeError) as e:
+            last_err = e
+    raise ValueError(f"plan_steps failed after 3 attempts: {last_err}")
 
 
 def _norm(s: str) -> str:
@@ -108,6 +114,8 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
     for s in data["steps"]:
         t = min(max(float(s["t"]), 0.0), duration)
         anchor = _norm(str(s.get("anchor_quote", "")))
+        if chunks and not anchor:
+            continue  # no anchor quote: unverifiable step, drop (fail-closed)
         if chunks and anchor:
             near = " ".join(txt for ct, txt in chunks if t - window_s <= ct <= t + window_s)
             if anchor not in near:
@@ -136,6 +144,8 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
             }
         )
     steps.sort(key=lambda s: s["t"])
+    if chunks and data.get("steps") and not steps:
+        raise ValueError("plan failed anchor verification: no step survived")
     tools = [str(x) for x in data.get("tools_summary", [])]
     return {"device": str(data.get("device", "device")), "tools_summary": tools, "steps": steps}
 
@@ -193,4 +203,5 @@ def pick_frame(api: MetaApi, candidates: list[tuple[float, str]], part: str, tit
     except Exception:
         pass
     return middle
+
 

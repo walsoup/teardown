@@ -154,16 +154,16 @@ p {{ font-size: 11.5px; line-height: 1.45; margin-bottom: 2mm; }}
 
 CSS = """
 :root {
-  --paper: #f6f1e7;
-  --paper-card: #fdfbf7;
-  --paper-hover: #f1ebd9;
-  --paper-active: #ede5d1;
+  --paper: #f7f6f2;
+  --paper-card: #ffffff;
+  --paper-hover: #efeee8;
+  --paper-active: #e7e6e0;
   --forest: #2f4632;
   --forest-hover: #243827;
   --terracotta: #b3562e;
   --terracotta-hover: #9c4925;
-  --hair: #ddd6c3;
-  --hair-dark: #c8c0ad;
+  --hair: #e0dfd6;
+  --hair-dark: #c7c6bd;
   --mut: #707567;
   --body-ink: #26261f;
 
@@ -174,7 +174,7 @@ CSS = """
   --ink: #2f4632;
 
   --font-serif: "Newsreader", Georgia, serif;
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -192,16 +192,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4, .font-serif {
-  font-family: var(--font-serif);
-}
+
 
 .mono-label {
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--mut);
+  font-variant-numeric: tabular-nums;
 }
 
 .material-symbols-outlined {
@@ -247,7 +244,7 @@ a:hover {
   justify-content: center;
   border: 1px solid var(--forest);
   color: var(--forest);
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 8px 18px;
   font-family: var(--font-sans);
   font-size: 13px;
@@ -345,14 +342,9 @@ a:hover {
 }
 
 .err, .landing-error {
-  border: 1px solid var(--terra);
-  border-left: 3px solid var(--terra);
-  background: #fdf5f0;
   color: var(--terra);
-  padding: 10px 14px;
   font-family: var(--font-sans);
   font-size: 13px;
-  border-radius: 6px;
   margin-bottom: 16px;
 }
 
@@ -383,25 +375,9 @@ a:hover {
   background: var(--paper-hover);
 }
 
-.drop-icon-wrap {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 1px solid var(--hair);
-  background: var(--paper-card);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--forest);
-  margin-bottom: 4px;
-}
-
-.drop-icon-wrap .material-symbols-outlined {
-  font-size: 24px;
-}
-
 .drop-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
+  font-weight: 600;
   font-size: 20px;
   color: var(--forest);
   font-weight: 500;
@@ -465,8 +441,6 @@ a:hover {
 .url-label {
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--mut);
 }
 
@@ -521,14 +495,6 @@ a:hover {
 }
 
 .landing-subbar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 14px;
-  background: var(--paper-card);
-  border: 1px solid var(--hair);
-  border-left: 3px solid var(--terra);
-  border-radius: 6px;
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--mut);
@@ -551,7 +517,8 @@ a:hover {
 }
 
 .recent-guides-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
+  font-weight: 600;
   font-size: 20px;
   color: var(--forest);
   font-weight: 400;
@@ -587,8 +554,10 @@ a:hover {
 }
 
 .job-card .pill {
-  padding: 6px 16px;
-  font-size: 13px;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 14px;
   font-weight: 500;
   display: inline-block;
   min-width: 0;
@@ -610,8 +579,6 @@ a:hover {
 .job-card .mut {
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--mut);
 }
 
@@ -685,7 +652,8 @@ a:hover {
 }
 
 .header-device {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
+  font-weight: 600;
   font-size: 16px;
   color: var(--forest);
   font-weight: 500;
@@ -713,7 +681,6 @@ a:hover {
   padding: 6px 20px;
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--mut);
   text-align: center;
@@ -790,7 +757,8 @@ a:hover {
 }
 
 .v-error-msg {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
+  font-weight: 600;
   font-size: 15px;
   color: var(--forest);
 }
@@ -991,12 +959,9 @@ a:hover {
 }
 
 .step-badge {
-  color: var(--forest);
-  font-weight: 600;
-  padding: 3px 10px;
-  background: #ede6d4;
-  border: 1px solid var(--hair);
-  border-radius: 999px;
+  color: var(--mut);
+  font-weight: 500;
+  padding: 3px 0;
 }
 
 .step-hl-badge {
@@ -1007,12 +972,12 @@ a:hover {
 }
 
 .step-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
+  font-weight: 600;
   font-size: 26px;
   line-height: 1.25;
   color: var(--forest);
   margin-bottom: 12px;
-  font-weight: 500;
 }
 
 .step-chips-row {
@@ -1028,13 +993,11 @@ a:hover {
   align-items: center;
   gap: 5px;
   padding: 4px 9px;
-  background: #fdfbf7;
+  background: #ffffff;
   border: 1px solid var(--hair);
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--body-ink);
   line-height: 1.2;
   white-space: normal;
@@ -1084,13 +1047,12 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: rgba(246, 241, 231, 0.94);
+  background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--hair);
   border-radius: 999px;
   padding: 3px 10px;
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
   color: var(--forest);
   cursor: pointer;
   pointer-events: none;
@@ -1295,7 +1257,8 @@ a:hover {
 }
 
 .disclosure-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
+  font-weight: 600;
   font-size: 16px;
   font-weight: 500;
   color: var(--forest);
@@ -1486,7 +1449,6 @@ a:hover {
 .app-footer {
   font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--mut);
 }
@@ -1498,9 +1460,7 @@ a:hover {
   left: 0;
   right: 0;
   z-index: 100;
-  background: rgba(246, 241, 231, 0.96);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: #ffffff;
   border-top: 1px solid var(--hair);
   padding: 10px 16px;
   padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
@@ -1739,7 +1699,7 @@ INDEX = """<!doctype html><html><head><meta charset=utf-8>
 <title>teardown</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <style>__CSS__</style>
 __REFRESH__</head><body class="landing-page">
@@ -1761,9 +1721,6 @@ __REFRESH__</head><body class="landing-page">
   <div class="card landing-card">
     <form method="post" action="/jobs" enctype="multipart/form-data" class="landing-form">
       <div class="drop-zone" id="drop-zone">
-        <div class="drop-icon-wrap">
-          <span class="material-symbols-outlined">videocam</span>
-        </div>
         <div class="drop-title font-serif">drop a video here</div>
         <p class="drop-sub mono-label">mp4 or mov, up to 2 GB</p>
         <label for="f" class="pill drop-browse-pill">
@@ -1780,7 +1737,6 @@ __REFRESH__</head><body class="landing-page">
       </div>
 
       <div class="url-input-section">
-        <label for="url-input" class="url-label mono-label">paste a youtube link</label>
         <div class="url-input-row">
           <div class="url-input-wrap">
             <span class="material-symbols-outlined url-icon">link</span>
@@ -1795,10 +1751,7 @@ __REFRESH__</head><body class="landing-page">
     </form>
   </div>
 
-  <div class="landing-subbar">
-    <span class="material-symbols-outlined" style="font-size:16px; color:var(--terra); margin-right:6px;">info</span>
-    <span>generated guides are a private test draft - not validated repair instructions</span>
-  </div>
+  <p class="landing-subbar">generated guides are a private test draft - not validated repair instructions</p>
 
   <section class="recent-guides-section">
     <div class="recent-guides-header">
@@ -1854,7 +1807,7 @@ GUIDE = """<!doctype html><html><head><meta charset=utf-8>
 <title>__DEVICE__ - teardown</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <style>__CSS__</style></head><body>
 <header class="app-header">
@@ -1887,8 +1840,8 @@ GUIDE = """<!doctype html><html><head><meta charset=utf-8>
         </div>
         <div class="timeline-container">
           <div class="timeline-header">
-            <span class="mono-label timeline-step-label" id="timeline-step-label">STEP 01 / __NSTEPS__ ACTIVE</span>
-            <span class="mono-label timeline-est" id="timeline-est">EST. REMAINING 19m 20s</span>
+            <span class="mono-label timeline-step-label" id="timeline-step-label">Step 01 of __NSTEPS__ - active</span>
+            <span class="mono-label timeline-est" id="timeline-est">Est. remaining 19m 20s</span>
           </div>
           <div class="progress-bar" id="progress-bar" aria-label="Step progress">
             __PROGRESS__
@@ -1897,17 +1850,17 @@ GUIDE = """<!doctype html><html><head><meta charset=utf-8>
       </div>
       <div class="telemetry-card card">
         <div class="telemetry-top">
-          <div class="telemetry-title mono-label">DISASSEMBLY TELEMETRY</div>
-          <div class="telemetry-pct mono-label" id="telemetry-pct">0% COMPLETED</div>
+          <div class="telemetry-title mono-label">Disassembly telemetry</div>
+          <div class="telemetry-pct mono-label" id="telemetry-pct">0% completed</div>
         </div>
         <div class="telemetry-middle">
-          <div class="telemetry-step mono-label" id="telemetry-step">STEP 01 OF __NSTEPS__</div>
-          <div class="telemetry-rem mono-label" id="telemetry-rem">EST. REMAINING 19m 20s</div>
+          <div class="telemetry-step mono-label" id="telemetry-step">Step 01 of __NSTEPS__</div>
+          <div class="telemetry-rem mono-label" id="telemetry-rem">Est. remaining 19m 20s</div>
         </div>
         <div class="telemetry-tray">
           <div class="telemetry-tray-header mono-label">
             <span class="material-symbols-outlined tray-icon">tune</span>
-            <span>ACTIVE STEP HARDWARE</span>
+            <span>Active step hardware</span>
           </div>
           <div class="telemetry-tray-body" id="telemetry-tray-body">
             <!-- Dynamic update via JS -->
@@ -1939,8 +1892,8 @@ GUIDE = """<!doctype html><html><head><meta charset=utf-8>
             </button>
           </div>
           <div class="step-nav-shortcuts">
-            <span class="mono-label">KEYBOARD SHORTCUTS:</span>
-            <span class="mono-label"><kbd>J</kbd> PREV &middot; <kbd>K</kbd> NEXT</span>
+            <span class="mono-label">Keyboard:</span>
+            <span class="mono-label"><kbd>J</kbd> prev &middot; <kbd>K</kbd> next</span>
           </div>
         </div>
       </div>
@@ -2070,7 +2023,7 @@ function formatRemaining(idx) {
   const rem = Math.max(0, dur - t);
   const mins = Math.floor(rem / 60);
   const secs = Math.floor(rem % 60);
-  return 'EST. REMAINING ' + mins + 'm ' + secs + 's';
+  return 'Est. remaining ' + mins + 'm ' + secs + 's';
 }
 
 function updateStateUI() {
@@ -2080,7 +2033,7 @@ function updateStateUI() {
 
   // Timeline header
   const timelineStepLabel = document.getElementById('timeline-step-label');
-  if (timelineStepLabel) timelineStepLabel.textContent = 'STEP ' + stepNumStr + ' / ' + totalSteps + ' ACTIVE';
+  if (timelineStepLabel) timelineStepLabel.textContent = 'Step ' + stepNumStr + ' of ' + totalSteps + ' - active';
   const timelineEst = document.getElementById('timeline-est');
   if (timelineEst) timelineEst.textContent = remText;
 
@@ -2102,10 +2055,10 @@ function updateStateUI() {
   const pctEl = document.getElementById('telemetry-pct');
   if (pctEl) {
     const pct = Math.round((doneSteps.size / totalSteps) * 100);
-    pctEl.textContent = pct + '% COMPLETED';
+    pctEl.textContent = pct + '% completed';
   }
   const telemetryStep = document.getElementById('telemetry-step');
-  if (telemetryStep) telemetryStep.textContent = 'STEP ' + stepNumStr + ' OF ' + totalSteps;
+  if (telemetryStep) telemetryStep.textContent = 'Step ' + stepNumStr + ' of ' + totalSteps;
   const telemetryRem = document.getElementById('telemetry-rem');
   if (telemetryRem) telemetryRem.textContent = remText;
 
@@ -2115,13 +2068,13 @@ function updateStateUI() {
     let trayHtml = '';
     if (hw && (hw.fasteners || hw.connectors)) {
       if (hw.fasteners) {
-        trayHtml += '<div class="tray-chip"><span class="tray-chip-tag mono-label">FASTENER:</span><span class="tray-chip-val">' + escapeHtml(hw.fasteners) + '</span></div>';
+        trayHtml += '<div class="tray-chip"><span class="tray-chip-tag mono-label">Fastener:</span><span class="tray-chip-val">' + escapeHtml(hw.fasteners) + '</span></div>';
       }
       if (hw.connectors) {
         trayHtml += '<div class="tray-chip"><span class="tray-chip-tag mono-label">CONNECTOR:</span><span class="tray-chip-val">' + escapeHtml(hw.connectors) + '</span></div>';
       }
     } else {
-      trayHtml = '<div class="tray-empty mono-label">NONE FOR THIS STEP</div>';
+      trayHtml = '<div class="tray-empty mono-label">None for this step</div>';
     }
     trayEl.innerHTML = trayHtml;
   }
@@ -2472,12 +2425,12 @@ class H(BaseHTTPRequestHandler):
                 # Hardware & fastener registry block
                 reg_rows = []
                 if s.get("fasteners", "").strip():
-                    reg_rows.append(f'<div class="registry-row"><span class="registry-type mono-label">FASTENERS:</span> <span class="registry-val">{esc(s["fasteners"].strip())}</span></div>')
+                    reg_rows.append(f'<div class="registry-row"><span class="registry-type mono-label">Fasteners:</span> <span class="registry-val">{esc(s["fasteners"].strip())}</span></div>')
                 if s.get("connectors", "").strip():
                     reg_rows.append(f'<div class="registry-row"><span class="registry-type mono-label">CONNECTORS:</span> <span class="registry-val">{esc(s["connectors"].strip())}</span></div>')
                 if reg_rows:
                     reg_items = "".join(reg_rows)
-                    reg_html = f'<div class="step-registry"><div class="registry-header"><span class="material-symbols-outlined registry-icon">tune</span><span class="registry-title mono-label">HARDWARE &amp; FASTENER REGISTRY</span></div><div class="registry-list">{reg_items}</div></div>'
+                    reg_html = f'<div class="step-registry"><div class="registry-header"><span class="material-symbols-outlined registry-icon">tune</span><span class="registry-title mono-label">Hardware &amp; fastener registry</span></div><div class="registry-list">{reg_items}</div></div>'
                 else:
                     reg_html = ""
 

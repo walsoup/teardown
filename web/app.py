@@ -42,26 +42,48 @@ def run_pipeline(job_id, video_path):
         plan = steps_mod.plan_steps(api, video_id, transcript, duration)
         n = len(plan["steps"])
         for i, s in enumerate(plan["steps"]):
-            JOBS[job_id]["stage"] = f"choosing frames ({i + 1}/{n})"
-            # candidate frames around the step timestamp; Spark picks the clearest
-            cands = []
-            for j, dt in enumerate((-8, -4, 0, 4, 8)):
-                ct = max(0.0, s["t"] + dt)
-                cp = os.path.join(out, "steps", f"cand-{i + 1}-{j}.png")
-                ingest.extract_frame(video_path, ct, cp)
-                cands.append((ct, cp))
-            pick = steps_mod.pick_frame(api, cands, s["part"], s["title"])
-            frame = cands[pick][1]
-            JOBS[job_id]["stage"] = f"highlighting parts ({i + 1}/{n})"
-            hit = segment_mod.segment_part(api, frame, s["part"])  # fail-closed
-            if hit:
-                render.annotate(frame, tuple(hit["bounds"]), hit["mask"], i + 1,
-                                os.path.join(out, "steps", f"step-{i + 1}.png"))
-                s["image"] = f"steps/step-{i + 1}.png"
-            else:
-                s["image"] = f"steps/cand-{i + 1}-{pick}.png"
-            s["segmented"] = bool(hit)
-        json.dump(plan, open(os.path.join(out, "plan.json"), "w"), indent=1)
+            try:
+                JOBS[job_id]["stage"] = f"choosing frames ({i + 1}/{n})"
+                # candidate frames around the step timestamp; Spark picks the clearest
+                cands = []
+                seen_t = set()
+                for j, dt in enumerate((-8, -4, 0, 4, 8)):
+                    ct = min(max(0.0, s["t"] + dt), max(0.0, duration - 0.5))
+                    if ct in seen_t:
+                        continue
+                    seen_t.add(ct)
+                    cp = os.path.join(out, "steps", f"cand-{i + 1}-{j}.png")
+                    try:
+                        ingest.extract_frame(video_path, ct, cp)
+                    except Exception:
+                        continue
+                    if not os.path.isfile(cp) or os.path.getsize(cp) == 0:
+                        continue
+                    cands.append((ct, cp))
+                if not cands:
+                    raise RuntimeError("no usable candidate frames")
+                pick = steps_mod.pick_frame(api, cands, s["part"], s["title"])
+                if not (0 <= pick < len(cands)):
+                    pick = len(cands) // 2
+                frame = cands[pick][1]
+                JOBS[job_id]["stage"] = f"highlighting parts ({i + 1}/{n})"
+                hit = segment_mod.segment_part(api, frame, s["part"])  # fail-closed
+                if hit:
+                    render.annotate(frame, tuple(hit["bounds"]), hit["mask"], i + 1,
+                                    os.path.join(out, "steps", f"step-{i + 1}.png"))
+                    s["image"] = f"steps/step-{i + 1}.png"
+                else:
+                    s["image"] = os.path.relpath(frame, out)
+                s["segmented"] = bool(hit)
+            except Exception as step_err:
+                s["segmented"] = False
+                s["image"] = ""
+                s["step_error"] = str(step_err)[:200]
+        plan["duration"] = duration
+        tmp_plan = os.path.join(out, "plan.json.tmp")
+        with open(tmp_plan, "w") as fh:
+            json.dump(plan, fh, indent=1)
+        os.replace(tmp_plan, os.path.join(out, "plan.json"))
         JOBS[job_id].update(status="done", device=plan["device"], steps=n)
     except Exception as e:
         JOBS[job_id].update(status="error", error=str(e)[:300])
@@ -88,9 +110,15 @@ def build_pdf(job_id):
             detail.append(f'<div class=dt><b>Connectors:</b> {esc(s["connectors"])}</div>')
         caut = f'<div class=caution>{esc(s["caution"])}</div>' if s.get("caution") else ""
         hl = ' &middot; <b class=hl>part highlighted</b>' if s.get("segmented") else ""
+        if s.get("image"):
+            img_html = f'<img src="steps-img/{n}.png">'
+        else:
+            img_html = ('<div class=noimg><b>No frame for this step.</b><br>'
+                        'This step could not be illustrated from the video; '
+                        'the text below comes from the narration only.</div>')
         blocks.append(f"""
 <div class=step>
-  <div class=imgcol><img src="steps-img/{n}.png"></div>
+  <div class=imgcol>{img_html}</div>
   <div class=txtcol>
     <div class=head><span class=num>{n}</span><h2>{esc(s['title'])}</h2></div>
     <div class=meta>{ts(s['t'])} &middot; {esc(s.get('tool') or 'fingers')}{hl}</div>
@@ -114,6 +142,7 @@ body {{ font-family: "Newsreader", Georgia, serif; color:#26261f; }}
 .tools li:before {{ content: "-  "; color:#b3562e; }}
 .step {{ display: grid; grid-template-columns: 47% 1fr; gap: 5mm; border-top: 1px solid #d9d4c5; padding: 4mm 0; page-break-inside: avoid; }}
 .imgcol img {{ width: 100%; border:1px solid #d9d4c5; }}
+.noimg {{ border:1px dashed #b3562e; color:#6b6b5f; font-size: 11px; padding: 6mm 4mm; }}
 .head {{ display:flex; align-items:center; gap: 3mm; margin-bottom: 1.5mm; }}
 .num {{ flex:none; width: 7.5mm; height: 7.5mm; border-radius: 50%; background:#2f4632; color:#fff; font-family: "Inter", system-ui, sans-serif; font-size: 11px; text-align:center; line-height: 7.5mm; }}
 h2 {{ font-size: 14px; color:#2f4632; }}
@@ -139,9 +168,13 @@ p {{ font-size: 11.5px; line-height: 1.45; margin-bottom: 2mm; }}
     imgdir = os.path.join(jd, "steps-img")
     os.makedirs(imgdir, exist_ok=True)
     for i, s in enumerate(steps):
+        if not s.get("image"):
+            continue  # degraded step: no frame to link; the page shows a note instead
         srcimg = os.path.join(jd, s["image"])
         dst = os.path.join(imgdir, f"{i + 1}.png")
-        if os.path.exists(srcimg) and not os.path.exists(dst):
+        if os.path.isfile(srcimg):
+            if os.path.exists(dst):
+                os.remove(dst)
             os.link(srcimg, dst)
     hp = os.path.join(jd, "guide-print.html")
     open(hp, "w").write(page)
@@ -1348,6 +1381,10 @@ a:hover {
   object-fit: cover;
   display: block;
 }
+.row-thumb-missing {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--mut); background: var(--hair);
+}
 
 .row-content {
   min-width: 0;
@@ -1943,19 +1980,22 @@ const stepHardware = __STEPHARDWARE__;
 const totalSteps = stepTimes.length;
 let activeStep = 0;
 
+const JOB_ID = (location.pathname.match(/^\/jobs\/([\w-]+)/) || [])[1] || 'unknown';
+const LS_DONE = 'td4-done-' + JOB_ID;
+const LS_BOOKMARKS = 'td4-bookmarks-' + JOB_ID;
 let doneSteps = new Set();
 let bookmarkSteps = new Set();
 
 function loadStorage() {
   try {
-    const d = localStorage.getItem('td4-done');
+    const d = localStorage.getItem(LS_DONE);
     if (d) {
       const arr = JSON.parse(d);
       if (Array.isArray(arr)) doneSteps = new Set(arr);
     }
   } catch(e) {}
   try {
-    const b = localStorage.getItem('td4-bookmarks');
+    const b = localStorage.getItem(LS_BOOKMARKS);
     if (b) {
       const arr = JSON.parse(b);
       if (Array.isArray(arr)) bookmarkSteps = new Set(arr);
@@ -1965,10 +2005,10 @@ function loadStorage() {
 
 function saveStorage() {
   try {
-    localStorage.setItem('td4-done', JSON.stringify(Array.from(doneSteps)));
+    localStorage.setItem(LS_DONE, JSON.stringify(Array.from(doneSteps)));
   } catch(e) {}
   try {
-    localStorage.setItem('td4-bookmarks', JSON.stringify(Array.from(bookmarkSteps)));
+    localStorage.setItem(LS_BOOKMARKS, JSON.stringify(Array.from(bookmarkSteps)));
   } catch(e) {}
 }
 
@@ -1996,7 +2036,7 @@ function escapeHtml(str) {
 
 function formatRemaining(idx) {
   const t = stepTimes[idx] || 0;
-  const dur = (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 1156;
+  const dur = (v && isFinite(v.duration) && v.duration > 0) ? v.duration : (stepTimes.length ? stepTimes[stepTimes.length - 1] : 0);
   const rem = Math.max(0, dur - t);
   const mins = Math.floor(rem / 60);
   const secs = Math.floor(rem % 60);
@@ -2181,6 +2221,10 @@ function filterSteps(q) {
   }
 }
 
+document.addEventListener('click', function(e) {
+  const w = e.target.closest('.step-image-wrap');
+  if (w && w.dataset.full) openImageOverlay(w.dataset.full, w.dataset.title || '');
+});
 function openImageOverlay(src, title) {
   const overlay = document.getElementById('image-overlay');
   const img = document.getElementById('image-overlay-img');
@@ -2353,23 +2397,14 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/":
-            busy = any(j["status"] in ("queued", "processing") for j in JOBS.values())
+            busy = any(j["status"] in ("queued", "processing") for j in list(JOBS.values()))
             refresh = '<meta http-equiv="refresh" content="4">' if busy else ""
             err = parse_qs(u.query).get("e", [""])[0] if u.query else ""
             err_html = f'<div class=err>{html_mod.escape(err)}</div>' if err else ""
             self._send(INDEX.replace("__CSS__", CSS).replace("__REFRESH__", refresh)
                        .replace("__ERROR__", err_html)
-                       .replace("__JOBS__", "".join(job_card(j) for j in JOBS)))
+                       .replace("__JOBS__", "".join(job_card(j) for j in list(JOBS))))
             return
-        if u.path == "/pdf":
-            pdf_path = os.path.join(DATA, "job4", "guide.pdf")
-            if os.path.isfile(pdf_path):
-                self._send(open(pdf_path, "rb").read(), "application/pdf",
-                           extra={"Content-Disposition": "attachment; filename=teardown-guide.pdf"})
-                return
-            else:
-                self._send("guide not found", "text/plain", 404)
-                return
         m = re.match(r"^/jobs/([\w-]+)(?:/(.*))?$", u.path)
         if m and m.group(2) is None:
             job = m.group(1)
@@ -2385,7 +2420,7 @@ class H(BaseHTTPRequestHandler):
 
                 # Time calculation
                 t_start = int(s["t"])
-                t_end = int(plan["steps"][i + 1]["t"]) if i + 1 < n_steps else 1160
+                t_end = int(plan["steps"][i + 1]["t"]) if i + 1 < n_steps else int(plan.get("duration") or s["t"])
                 ts_start = f"{t_start // 60:02d}:{t_start % 60:02d}"
                 ts_end = f"{t_end // 60:02d}:{t_end % 60:02d}"
                 meta_parts = [f"{ts_start} &ndash; {ts_end}"]
@@ -2419,8 +2454,18 @@ class H(BaseHTTPRequestHandler):
                 else:
                     caut_html = ""
 
-                img_url = f"/jobs/{job}/{s['image']}"
                 step_title_esc = esc(s["title"])
+                img_url = f"/jobs/{job}/{s['image']}" if s.get("image") else ""
+                if img_url:
+                    img_wrap = (
+                        f'<div class="step-image-wrap" data-full="{img_url}" data-title="{step_title_esc}" title="Click to view full-resolution image">'
+                        f'<img loading="lazy" class="step-img" src="{img_url}" alt="{step_title_esc}">'
+                        f'<button type="button" class="inspect-btn mono-label"><span class="material-symbols-outlined" style="font-size:14px;">zoom_in</span> Inspect</button>'
+                        f'</div>'
+                    )
+                else:
+                    img_wrap = '<p class="step-desc mut">No usable frame for this step.</p>'
+
                 step_inst_esc = esc(s["instruction"])
 
                 return (
@@ -2431,10 +2476,7 @@ class H(BaseHTTPRequestHandler):
                     f'  </div>'
                     f'  <h2 class="step-title">{step_title_esc}</h2>'
                     f'  {meta_line}'
-                    f'  <div class="step-image-wrap" onclick="openImageOverlay(\'{img_url}\', \'{step_title_esc}\')" title="Click to view full-resolution image">'
-                    f'    <img loading="lazy" class="step-img" src="{img_url}" alt="{step_title_esc}">'
-                    f'    <button type="button" class="inspect-btn mono-label"><span class="material-symbols-outlined" style="font-size:14px;">zoom_in</span> Inspect</button>'
-                    f'  </div>'
+                    f'  {img_wrap}'
                     f'  <p class="step-desc">{step_inst_esc}</p>'
                     f'  {reg_html}'
                     f'  {caut_html}'
@@ -2448,11 +2490,15 @@ class H(BaseHTTPRequestHandler):
                 ts_str = f"{t_sec // 60:02d}:{t_sec % 60:02d}"
                 num_str = f"{i + 1:02d}"
                 tool_str = esc(s.get("tool") or "fingers")
+                if s.get("image"):
+                    thumb_html = f'<img loading="lazy" class="row-thumb" src="/jobs/{job}/{s["image"]}" alt="{esc(s["title"])}">'
+                else:
+                    thumb_html = '<span class="row-thumb row-thumb-missing mono-label">no frame</span>'
                 return (
                     f'<div class="rail-row{active_class}" id="rail-row-{i}" data-index="{i}" data-title="{esc(s["title"])}" role="button" tabindex="0" onclick="selectStep({i})">'
                     f'  <span class="row-num mono-label">{num_str}</span>'
                     f'  <div class="row-thumb-wrap">'
-                    f'    <img loading="lazy" class="row-thumb" src="/jobs/{job}/{s["image"]}" alt="{esc(s["title"])}">'
+                    f'    {thumb_html}'
                     f'  </div>'
                     f'  <div class="row-content">'
                     f'    <div class="row-title">{esc(s["title"])}</div>'

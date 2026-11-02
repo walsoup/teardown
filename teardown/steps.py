@@ -53,6 +53,7 @@ Rules:
 - do NOT space steps evenly: base each step on where the narration actually moves to a new action
 - anchor_quote must be an exact substring of the transcript above
 - NEVER invent fastener counts, screw sizes, connector names, or warnings. An empty field is better than a guessed one.
+- when the narrator makes a safety or efficacy claim (e.g. 'this will not damage the device'), attribute it in the instruction (e.g. 'The narrator says ...; that is the creator's claim, not verified guidance') - never state such claims as fact.
 """
 
 

@@ -53,11 +53,10 @@ class AnchorVerificationTest(unittest.TestCase):
         self.assertEqual(out["steps"][0]["t"], 0.0)
 
     def test_anchor_elsewhere_reanchors(self):
-        # quote from window 2, claimed at t=0: re-anchors to the earliest
-        # window pair containing it (w1+w2), i.e. t=30 - within one window
-        # of the truth, by design.
+        # The quote is only in the t=60 window. A neighboring window must not
+        # keep the claimed time or inherit the hit.
         out = parse_steps(plan([step(0.0, "RAM springs")]), 90.0, WINDOWS)
-        self.assertEqual(out["steps"][0]["t"], 30.0)
+        self.assertEqual(out["steps"][0]["t"], 60.0)
 
     def test_anchor_nowhere_drops_step(self):
         out = parse_steps(plan([step(0.0, "replace the thermal paste"),

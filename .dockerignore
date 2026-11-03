@@ -4,3 +4,7 @@ tests/
 scripts/
 *.pyc
 __pycache__/
+.env
+.git
+.venv
+demo/

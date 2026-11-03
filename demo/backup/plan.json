@@ -1,0 +1,118 @@
+{
+  "device": "test device (mock)",
+  "tools_summary": [
+    "Phillips screwdriver"
+  ],
+  "steps": [
+    {
+      "t": 0.33,
+      "part": "battery",
+      "title": "Mock step 1",
+      "instruction": "This is a mock instruction used to test the pipeline without API calls.",
+      "tool": "Phillips screwdriver",
+      "fasteners": "",
+      "connectors": "",
+      "caution": "",
+      "source": "",
+      "lines": [
+        {
+          "type": "action",
+          "text": "This is a mock instruction used to test the pipeline without API calls."
+        }
+      ],
+      "segmented": true
+    },
+    {
+      "t": 1.0,
+      "part": "main component",
+      "title": "Mock step 2",
+      "instruction": "This is a mock instruction used to test the pipeline without API calls.",
+      "tool": "fingers",
+      "fasteners": "",
+      "connectors": "",
+      "caution": "",
+      "source": "",
+      "lines": [
+        {
+          "type": "action",
+          "text": "This is a mock instruction used to test the pipeline without API calls."
+        }
+      ],
+      "segmented": true
+    },
+    {
+      "t": 1.67,
+      "part": "main component",
+      "title": "Mock step 3",
+      "instruction": "This is a mock instruction used to test the pipeline without API calls.",
+      "tool": "fingers",
+      "fasteners": "",
+      "connectors": "",
+      "caution": "",
+      "source": "",
+      "lines": [
+        {
+          "type": "action",
+          "text": "This is a mock instruction used to test the pipeline without API calls."
+        }
+      ],
+      "segmented": true
+    },
+    {
+      "t": 2.33,
+      "part": "main component",
+      "title": "Mock step 4",
+      "instruction": "This is a mock instruction used to test the pipeline without API calls.",
+      "tool": "fingers",
+      "fasteners": "",
+      "connectors": "",
+      "caution": "",
+      "source": "",
+      "lines": [
+        {
+          "type": "action",
+          "text": "This is a mock instruction used to test the pipeline without API calls."
+        }
+      ],
+      "segmented": true
+    },
+    {
+      "t": 3.0,
+      "part": "main component",
+      "title": "Mock step 5",
+      "instruction": "This is a mock instruction used to test the pipeline without API calls.",
+      "tool": "fingers",
+      "fasteners": "",
+      "connectors": "",
+      "caution": "",
+      "source": "",
+      "lines": [
+        {
+          "type": "action",
+          "text": "This is a mock instruction used to test the pipeline without API calls."
+        }
+      ],
+      "segmented": true
+    },
+    {
+      "t": 3.67,
+      "part": "main component",
+      "title": "Mock step 6",
+      "instruction": "This is a mock instruction used to test the pipeline without API calls.",
+      "tool": "fingers",
+      "fasteners": "",
+      "connectors": "",
+      "caution": "",
+      "source": "",
+      "lines": [
+        {
+          "type": "action",
+          "text": "This is a mock instruction used to test the pipeline without API calls."
+        }
+      ],
+      "segmented": true
+    }
+  ],
+  "coverage_warning": false,
+  "attribution": "local synthetic clip, generated for the offline backup"
+}

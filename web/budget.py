@@ -158,19 +158,96 @@ def reserve(job_id, amount):
         if state["spent_usd"] + outstanding + amount > SOFT_CAP_USD:
             return None
         state["reserved"][job_id] = round(amount, 6)
+        state.setdefault("reserved_at", {})[job_id] = int(time.time())
         return amount
     return _cas(fn) is not None
 
 
-def settle(job_id, actual):
-    """Commit a job's actual spend and release its reservation."""
+def call_fits(state, job_id, estimate, cap=None):
+    """True when this call still fits under the hard cap.
+
+    Other jobs' reservations count. This job's own reservation does not,
+    because `estimate` is the in-flight slice of that reservation.
+    """
+    limit = CAP_USD if cap is None else cap
+    others = sum(value for key, value in state.get("reserved", {}).items() if key != job_id)
+    return state.get("spent_usd", 0.0) + others + float(estimate) <= limit + 1e-9
+
+
+def ensure_call_headroom(job_id, estimate):
+    """Read the ledger and refuse a call that would cross the hard cap."""
+    if not TOKEN:
+        return True
+    state, _ = _read()
+    return call_fits(state, job_id, estimate)
+
+
+_STALE_RESERVATION_S = int(os.environ.get("TEARDOWN_RESERVATION_TTL_S", str(6 * 3600)))
+
+
+def expire_stale(max_age_s=None):
+    """Settle reservations older than max_age_s at the reserved amount.
+
+    A crashed job never reaches settle, so its reservation would block the
+    demo forever. Overage already posted for that job is not added again.
+    Returns the number of reservations expired, or None when there is no ledger.
+    """
+    if not TOKEN:
+        return None
+    limit = _STALE_RESERVATION_S if max_age_s is None else max_age_s
+
     def fn(state):
-        state["reserved"].pop(job_id, None)
-        state["spent_usd"] = round(state["spent_usd"] + actual, 6)
-        state["history"].append(
-            {"job": job_id, "actual_usd": round(actual, 6), "ts": int(time.time())})
+        now = int(time.time())
+        stamps = state.setdefault("reserved_at", {})
+        expired = []
+        for job_id, amount in list(state.get("reserved", {}).items()):
+            stamp = stamps.get(job_id)
+            if stamp is None or now - int(stamp) > limit:
+                expired.append((job_id, float(amount)))
+        if not expired:
+            return None
+        for job_id, amount in expired:
+            state["reserved"].pop(job_id, None)
+            stamps.pop(job_id, None)
+            add = settle_amount(amount, posted_overage(state, job_id))
+            state["spent_usd"] = round(max(0.0, state["spent_usd"] + add), 6)
+            state["history"].append(
+                {"job": job_id, "expired_reservation_usd": round(add, 6), "ts": now})
         state["history"] = state["history"][-200:]
-        return actual
+        return len(expired)
+
+    return _cas(fn)
+
+
+def posted_overage(state, job_id):
+    """Overage already committed for this job, so settle does not add it twice."""
+    total = 0.0
+    for row in state.get("history") or []:
+        if row.get("job") == job_id and "overage_usd" in row:
+            total += float(row["overage_usd"])
+    return total
+
+
+def settle_amount(actual, already_posted):
+    """Spend still to commit. Never negative."""
+    return max(0.0, round(float(actual) - float(already_posted), 6))
+
+
+def settle(job_id, actual):
+    """Commit a job's actual spend and release its reservation.
+
+    Overage rows already added to spent_usd are subtracted so a call that
+    beat its estimate is not billed twice.
+    """
+    def fn(state):
+        add = settle_amount(actual, posted_overage(state, job_id))
+        state["reserved"].pop(job_id, None)
+        state.setdefault("reserved_at", {}).pop(job_id, None)
+        state["spent_usd"] = round(max(0.0, state["spent_usd"] + add), 6)
+        state["history"].append(
+            {"job": job_id, "actual_usd": round(float(actual), 6), "ts": int(time.time())})
+        state["history"] = state["history"][-200:]
+        return add
     _cas(fn)
 
 
@@ -230,26 +307,55 @@ class JobMeter:
         self.job_id = job_id
         self.reservation = reservation
         self.actual = 0.0
+        self.overage_posted = 0.0
         self.rin, self.rout = spark_rates(spark_model)
+        self._lock = threading.Lock()
+        self._asr_headroom_checks = 0
 
-    def _check(self, est):
-        if self.actual + est > self.reservation:
-            raise BudgetExhausted(
-                "job aborted: cost estimate exceeded its reservation")
+    def _check(self, est, headroom=True):
+        with self._lock:
+            if self.actual + est > self.reservation + 1e-9:
+                raise BudgetExhausted(
+                    "job aborted: cost estimate exceeded its reservation")
+        if headroom and not ensure_call_headroom(self.job_id, est):
+            raise BudgetExhausted("call would exceed the shared budget cap")
 
     def _add(self, est, actual):
-        self.actual += actual
-        if actual > est:
-            add_overage(self.job_id, actual - est)
+        actual = max(0.0, float(actual))
+        est = max(0.0, float(est))
+        extra = actual - est if actual > est else 0.0
+        if extra > 0:
+            add_overage(self.job_id, extra)
+        with self._lock:
+            self.actual += actual
+            if extra > 0:
+                self.overage_posted += extra
 
     @staticmethod
     def _usage_tokens(usage):
-        if not usage:
+        """Token counts only when the payload has the fields we bill on.
+
+        Missing or zeroed fields keep the pre-call estimate. A cached-token
+        count is clamped so it cannot drive the cost negative.
+        """
+        if not isinstance(usage, dict):
             return None
-        in_t = usage.get("input_tokens") or 0
-        out_t = usage.get("output_tokens") or 0
+        if "input_tokens" not in usage or "output_tokens" not in usage:
+            return None
+        try:
+            in_t = int(usage["input_tokens"])
+            out_t = int(usage["output_tokens"])
+        except (TypeError, ValueError):
+            return None
+        if in_t < 0 or out_t < 0 or (in_t == 0 and out_t == 0):
+            return None
         details = usage.get("input_tokens_details") or {}
-        cached = usage.get("cached_tokens") or details.get("cached_tokens") or 0
+        cached = usage.get("cached_tokens", details.get("cached_tokens", 0))
+        try:
+            cached = int(cached)
+        except (TypeError, ValueError):
+            cached = 0
+        cached = max(0, min(cached, in_t))
         return in_t, out_t, cached
 
     def spark_before(self, est_in, est_out):
@@ -258,18 +364,28 @@ class JobMeter:
         return est
 
     def spark_after(self, est, usage):
-        actual = est  # no usage reported: keep the (higher) estimate
+        actual = est  # no usable usage: keep the (higher) estimate
         toks = self._usage_tokens(usage)
         if toks:
             in_t, out_t, cached = toks
-            cached_rate = self.rin * 0.08 if self.rin < 1e-6 else self.rin * 0.12
-            actual = ((in_t - cached) * self.rin + cached * cached_rate
-                      + out_t * self.rout)
+            cached_rate = self.rin * 0.12
+            computed = max(0.0, (in_t - cached) * self.rin + cached * cached_rate
+                           + out_t * self.rout)
+            # A video-sized call that reports a handful of tokens is not
+            # believable. Keep the estimate rather than recording it as free.
+            if est >= 0.05 and computed < est * 0.05 and in_t < 10_000:
+                computed = est
+            actual = computed
         self._add(est, actual)
 
     def asr_before(self, window_s):
         est = (window_s + EST["asr_window_seconds_pad"]) * RATES["asr_second"]
-        self._check(est)
+        # ASR windows are cheap and numerous. Check the shared cap on the
+        # first window; every window still has to fit this job's reservation.
+        with self._lock:
+            self._asr_headroom_checks += 1
+            check_cap = self._asr_headroom_checks == 1
+        self._check(est, headroom=check_cap)
         return est
 
     def asr_after(self, window_s, est):

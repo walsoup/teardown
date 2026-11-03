@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import requests
 
@@ -48,6 +49,7 @@ class MetaApi:
 
     def respond(self, model: str, content: list[dict], timeout: int = 300, **extra) -> str:
         """One non-streaming Responses call. Returns the output_text."""
+        self.last_usage = None
         r = self.session.post(
             f"{BASE_URL}/responses",
             timeout=timeout,
@@ -67,6 +69,7 @@ class MetaApi:
 
         Used for SAM 3.1: events feed the meta_sam_parser stream parser.
         """
+        self.last_usage = None
         r = self.session.post(
             f"{BASE_URL}/responses",
             timeout=300,
@@ -107,31 +110,98 @@ class MetaApi:
             return " ".join(self._transcribe_chunk(c) for c in chunks)
         return self._transcribe_chunk(wav_path)
 
-    def transcribe_timed(self, wav_path: str, window_s: float = 30.0, progress=None) -> list[dict]:
+    def transcribe_timed(self, wav_path: str, window_s: float = 30.0, progress=None,
+                         checkpoint_path: str | None = None, workers: int | None = None,
+                         offset: float = 0.0) -> list[dict]:
         """Transcribe with approximate timing by transcribing small windows.
 
         The ASR endpoint returns no timestamps, so timing is established by
         cutting the audio into windows of known offsets and transcribing
-        each window on its own. Billing is per audio-hour, so this costs
-        the same as one full-file call while giving every transcript line
-        a verifiable +-window_s time anchor.
+        each window on its own. Windows overlap by about a second so a word
+        on the boundary lands intact in one of them. A sub-second tail is
+        merged into the previous window instead of becoming its own request.
+
+        Finished windows are written to checkpoint_path as they complete, so
+        a retry skips audio that was already paid for. `offset` (the audio
+        stream's start_time in the video) is added to every window start.
         """
         duration = _probe_duration(wav_path)
-        windows = []
-        n = max(1, int(-(-duration // window_s)))  # ceil
-        for i in range(n):
-            start = i * window_s
-            chunk = _cut_wav(wav_path, start, min(window_s, duration - start))
+        planned = plan_windows(duration, window_s)
+        done = _load_checkpoint(checkpoint_path)
+        pending = []
+        ordered: list[dict] = []
+        for start, length in planned:
+            key = _window_key(start + offset)
+            if key in done:
+                ordered.append({"t": key, "text": done[key]})
+            else:
+                pending.append((start, length))
+        if progress and planned:
+            progress(len(planned) - len(pending), len(planned))
+        if not pending:
+            return ordered
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        width = workers
+        if width is None:
+            width = int(os.environ.get("TEARDOWN_ASR_WORKERS", "6"))
+        width = max(1, min(width, len(pending)))
+        fresh: dict[float, str] = {}
+
+        def work(item):
+            start, length = item
+            chunk = _cut_wav(wav_path, start, length)
             try:
-                text = self._transcribe_chunk(chunk)
+                text = self._transcribe_chunk_retry(chunk)
             finally:
-                os.path.exists(chunk) and os.remove(chunk)
-            windows.append({"t": start, "text": text})
-            if progress:
-                progress(i + 1, n)
-        return windows
+                try:
+                    os.remove(chunk)
+                except OSError:
+                    pass
+            return _window_key(start + offset), text or ""
+
+        completed = len(planned) - len(pending)
+        with ThreadPoolExecutor(max_workers=width) as pool:
+            for key, text in pool.map(work, pending):
+                fresh[key] = text
+                _save_checkpoint(checkpoint_path, {**done, **fresh})
+                completed += 1
+                if progress:
+                    progress(completed, len(planned))
+        by_t = {item["t"]: item["text"] for item in ordered}
+        by_t.update(fresh)
+        return [{"t": _window_key(start + offset), "text": by_t.get(_window_key(start + offset), "")}
+                for start, _length in planned]
+
+    def _transcribe_chunk_retry(self, wav_path: str) -> str:
+        """Retry a single window on rate limits and transient server errors.
+
+        A retry bills one window, not the whole file. Other HTTP errors raise
+        immediately so a bad request is not paid for four times.
+        """
+        delay = 1.0
+        last: Exception | None = None
+        for attempt in range(4):
+            try:
+                return self._transcribe_chunk(wav_path)
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else 0
+                last = exc
+                if status not in (429, 500, 502, 503, 504) or attempt == 3:
+                    raise
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                last = exc
+                if attempt == 3:
+                    raise
+            time.sleep(delay)
+            delay = min(8.0, delay * 2)
+        if last:
+            raise last
+        return ""
 
     def _transcribe_chunk(self, wav_path: str) -> str:
+        self.last_usage = None
         with open(wav_path, "rb") as audio:
             r = self.session.post(
                 f"{BASE_URL}/asr/transcribe",
@@ -165,33 +235,109 @@ class MetaApi:
         return r.text
 
 
+def plan_windows(duration: float, window_s: float = 30.0,
+                 overlap_s: float = 1.0, tail_min_s: float = 1.0) -> list[tuple[float, float]]:
+    """Return (start, length) cuts covering `duration`.
+
+    A tail shorter than tail_min_s is merged into the previous window so a
+    container duration of 1140.02s does not become its own API call. Every
+    window except the last is lengthened by overlap_s so a word on the cut
+    is intact in one request.
+    """
+    if duration <= 0 or window_s <= 0:
+        return []
+    count = max(1, int(-(-duration // window_s)))
+    starts = [i * window_s for i in range(count)]
+    if len(starts) >= 2 and (duration - starts[-1]) < tail_min_s:
+        starts.pop()
+    windows: list[tuple[float, float]] = []
+    for index, start in enumerate(starts):
+        if start >= duration:
+            continue
+        if index < len(starts) - 1:
+            length = min(window_s + overlap_s, duration - start)
+        else:
+            length = duration - start
+        if length <= 0:
+            continue
+        windows.append((start, length))
+    return windows
+
+
+def _window_key(t: float) -> float:
+    return round(float(t), 3)
+
+
+def _load_checkpoint(path: str | None) -> dict[float, str]:
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    found: dict[float, str] = {}
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and "t" in item:
+                found[_window_key(item["t"])] = str(item.get("text") or "")
+    return found
+
+
+def _save_checkpoint(path: str | None, windows: dict[float, str]) -> None:
+    if not path:
+        return
+    payload = [{"t": t, "text": windows[t]} for t in sorted(windows)]
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    os.replace(tmp, path)
+
+
 def _probe_duration(path: str) -> float:
     import subprocess
 
     r = subprocess.run(
         [
-            "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+            "ffprobe", "-protocol_whitelist", "file,crypto,pipe",
+            "-v", "quiet", "-show_entries", "format=duration",
             "-of", "csv=p=0", path,
         ],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        check=True, timeout=60,
     )
     return float(r.stdout.strip())
 
 
 def _cut_wav(wav_path: str, start: float, length: float) -> str:
-    """Losslessly cut [start, start+length) of a WAV into a temp file."""
+    """Cut [start, start+length) of a WAV into a temp file.
+
+    The temp file is removed if ffmpeg fails, so a crashed cut does not leak.
+    """
     import subprocess
     import tempfile
 
     fd, out = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
-            "-i", wav_path, "-ac", "1", "-ar", "16000", "-f", "wav", out,
-        ],
-        capture_output=True, check=True, timeout=120,
-    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-protocol_whitelist", "file,crypto,pipe",
+                "-ss", f"{start:.3f}", "-t", f"{max(length, 0.05):.3f}",
+                "-i", wav_path, "-ac", "1", "-ar", "16000",
+                "-c:a", "pcm_s16le", "-f", "wav", out,
+            ],
+            capture_output=True, check=True, timeout=120,
+        )
+    except Exception:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+        raise
     return out
 
 
@@ -200,9 +346,10 @@ def _chunk_wav(wav_path: str) -> list[str]:
     import subprocess
 
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", wav_path],
-        capture_output=True, text=True)
+        ["ffprobe", "-protocol_whitelist", "file,crypto,pipe", "-v", "error",
+         "-show_entries", "format=duration", "-of", "csv=p=0", wav_path],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=60)
     try:
         duration = float(out.stdout.strip())
     except ValueError:
@@ -211,9 +358,10 @@ def _chunk_wav(wav_path: str) -> list[str]:
         return [wav_path]
     pattern = wav_path.rsplit(".", 1)[0] + ".part%02d.wav"
     subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", wav_path,
+        ["ffmpeg", "-y", "-protocol_whitelist", "file,crypto,pipe",
+         "-loglevel", "error", "-i", wav_path,
          "-f", "segment", "-segment_time", str(8 * 60), "-c", "copy", pattern],
-        check=True)
+        check=True, timeout=1800)
     import glob
 
     return sorted(glob.glob(pattern.replace("%02d", "*")))

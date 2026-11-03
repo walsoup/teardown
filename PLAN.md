@@ -35,16 +35,16 @@ Stage one is pass/fail: project must fit a theme and actually use the Meta Model
 | --- | --- | --- |
 | Ingest | ffmpeg | frames + audio |
 | Transcript | Muse Voice Transcribe | step narration text |
-| Step & keyframe selection | Muse Spark | 6-8 keyframes, part names, one line of instruction per step |
+| Step & keyframe selection | Muse Spark | one keyframe per narrated step (the prompt asks for 15-40; the web cap is 35) |
 | Segmentation | SAM 3.1 (Meta Model API) | masks for the named parts on each keyframe |
 | Guide rendering | OpenCV | outlines, dimmed background, numbered steps, 2x zoom insets |
 | Output | static HTML | scrollable guide page |
 
 ## MVP (what "done" means)
 
-- One 30-90s clip in, one correct-looking guide page out.
-- 6-8 steps, each with an annotated image and one sentence of instruction.
-- Runs end-to-end from a single command.
+- One narrated clip in, one guide page out.
+- Each step has an image, a window-snapped time, and short bullets.
+- Runs end-to-end from `python -m teardown clip.mp4 --i-accept-api-cost`. `--mock` does the same path with no API calls.
 
 Stretch, only if ahead: tools list per guide, difficulty/time estimate, PDF export, a second device category.
 
@@ -57,10 +57,10 @@ Stretch, only if ahead: tools list per guide, difficulty/time estimate, PDF expo
 
 ## Cost guardrails
 
-- Around $148 of the $150 Meta API credits remained as of Oct 28 (dashboard usage display lags up to an hour).
-- Using the API at all requires a card on the Meta developer account, and the "Spend Limit" on the Billing page is a notification, not a hard cap. The keyframe-first design keeps usage small; check the Billing page before any heavy batch runs.
+- Around $148 of the $150 Meta API credits remained as of Oct 28 (dashboard usage display lags up to an hour). That figure is a point-in-time note, not a live balance.
+- Using the API at all requires a card on the Meta developer account, and the "Spend Limit" on the Billing page is a notification, not a hard cap. The web app and the CLI (when `LEDGER_GITHUB_TOKEN` is set) keep their own ledger and reserve a worst case before each job. Check the Billing page before any heavy batch runs.
 
 ## Open questions
 
 - Teammate eligibility: a support email about adding a friend is still unanswered; solo is the default until it lands. Teams cap at 4, everyone must be individually accepted.
-- Repo visibility flip and license choice are both still open - owner's call before submission.
+- Repo visibility is still the owner's call before submission. The tree ships an MIT [LICENSE](LICENSE); swap it if you want a different one.

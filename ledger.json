@@ -1,7 +1,9 @@
 {
  "cap_usd": 20.0,
  "spent_usd": 1.116927,
- "reserved": {},
+ "reserved": {
+  "t4rtx3090aaaaaaaaaaaaaaaaaaaaaa01": 0.574901
+ },
  "history": [
   {
    "job": "test-job-1",
@@ -89,5 +91,7 @@
    "ts": 1793760057
   }
  ],
- "reserved_at": {}
+ "reserved_at": {
+  "t4rtx3090aaaaaaaaaaaaaaaaaaaaaa01": 1793760064
+ }
 }

@@ -92,9 +92,14 @@ def run_job(job_id, video_path, url, ip):
         if not duration or duration > MAX_DURATION_S:
             raise ValueError(
                 f"that video is about {round(duration / 60)} minutes - this demo handles up to 20")
-        from teardown.ingest import looks_like_container
+        from teardown.ingest import is_ebml, looks_like_container, remux_to_mp4
         if not looks_like_container(video_path):
             raise ValueError("that file is not an mp4, mov, or webm")
+        if is_ebml(video_path):
+            # Meta's files API rejects video/webm; the same streams in an mp4
+            # wrapper are accepted, and a copy-remux costs seconds.
+            set_stage(job_id, "converting the video for the model")
+            video_path = remux_to_mp4(video_path)
         JOBS[job_id]["duration"] = duration
         if ACTIVE_LOCK.locked():
             set_stage(job_id, "waiting for another guide to finish",

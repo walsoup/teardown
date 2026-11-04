@@ -31,6 +31,30 @@ def _run(cmd: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
     )
 
 
+def is_ebml(path: str) -> bool:
+    """True for an EBML header (webm/mkv)."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) == b"\x1a\x45\xdf\xa3"
+    except OSError:
+        return False
+
+
+def remux_to_mp4(path: str) -> str:
+    """Copy a webm/mkv into an mp4 wrapper (fast: no re-encode).
+
+    The Model API rejects video/webm uploads but accepts the same streams in
+    an mp4 container. Returns the new path; the caller swaps it in.
+    """
+    out_path = path + ".mp4"
+    _run(
+        ["ffmpeg", "-y", *_PROTOCOL, "-v", "error", "-i", path,
+         "-c", "copy", "-movflags", "+faststart", out_path],
+        timeout=600,
+    )
+    return out_path
+
+
 def looks_like_container(path: str) -> bool:
     """True for an ISO BMFF header (mp4/mov, `ftyp`) or an EBML header (webm/mkv)."""
     try:

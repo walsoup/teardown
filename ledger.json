@@ -1,9 +1,8 @@
 {
  "cap_usd": 20.0,
- "spent_usd": 1.116927,
+ "spent_usd": 1.422171,
  "reserved": {
-  "t5ps2fataaaaaaaaaaaaaaaaaaaaaa01": 0.5749,
-  "d441c95cdd1d411ea5244404dd8347bf": 0.540368
+  "t5ps2fataaaaaaaaaaaaaaaaaaaaaa01": 0.5749
  },
  "history": [
   {
@@ -95,10 +94,14 @@
    "job": "t4rtx3090aaaaaaaaaaaaaaaaaaaaaa01",
    "actual_usd": 0.0,
    "ts": 1793760067
+  },
+  {
+   "job": "d441c95cdd1d411ea5244404dd8347bf",
+   "actual_usd": 0.305244,
+   "ts": 1793760505
   }
  ],
  "reserved_at": {
-  "t5ps2fataaaaaaaaaaaaaaaaaaaaaa01": 1793760072,
-  "d441c95cdd1d411ea5244404dd8347bf": 1793760380
+  "t5ps2fataaaaaaaaaaaaaaaaaaaaaa01": 1793760072
  }
 }

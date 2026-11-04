@@ -1765,7 +1765,7 @@ __REFRESH__</head><body class="landing-page">
   </section>
 
   <footer class="landing-footer">
-    <p class="app-footer">public demo - shared $20 API budget - not repair advice</p>
+    <p class="app-footer">public demo - not repair advice</p>
   </footer>
 </div>
 

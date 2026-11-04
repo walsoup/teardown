@@ -9,14 +9,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def downloader(lines, monkeypatch, tmp_path):
     source = (ROOT / "web" / "youtube.py").read_text()
-    node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == '_download')
+    node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == '_ytdlp_download')
     captured = []
+    jobs = {'test': {}}
+    def _fail(job_id, msg):
+        jobs[job_id].update(status='error', error=msg)
+        return False
     proc = SimpleNamespace(stdout=iter(lines), returncode=1, wait=lambda **k: None, kill=lambda: None)
     import os, re, time
     namespace = dict(subprocess=SimpleNamespace(Popen=lambda cmd, **kwargs: captured.append(cmd) or proc, PIPE=-1, STDOUT=-2),
-                     os=os, re=re, time=time, JOBS={'test': {}}, set_stage=lambda *a: None)
+                     os=os, re=re, time=time, JOBS=jobs, set_stage=lambda *a: None, _fail=_fail)
     exec(compile(ast.Module(body=[node], type_ignores=[]), '<download>', 'exec'), namespace)
-    assert namespace['_download']('test', 'https://youtu.be/example', str(tmp_path/'none.mp4')) is False
+    assert namespace['_ytdlp_download']('test', 'https://youtu.be/example', str(tmp_path/'none.mp4')) is False
     return namespace['JOBS']['test']['error'], captured[0]
 
 

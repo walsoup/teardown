@@ -429,6 +429,11 @@ class H(BaseHTTPRequestHandler):
         started = False
         try:
             if not origin_ok(self):
+                print("[origin reject] origin=%r host=%r peer=%r xfh=%r xfp=%r ua=%r" % (
+                    self.headers.get("Origin"), self.headers.get("Host"),
+                    self.client_address[0], self.headers.get("X-Forwarded-Host"),
+                    self.headers.get("X-Forwarded-Proto"),
+                    (self.headers.get("User-Agent") or "")[:80]), flush=True)
                 self._redirect("that request did not come from this site")
                 return
             try:

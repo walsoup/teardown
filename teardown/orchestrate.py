@@ -36,6 +36,14 @@ def read_json(path: str):
         return json.load(fh)
 
 
+MIN_NARRATION_WORDS = 10
+
+
+def narration_words(transcript) -> int:
+    """Total words across timed windows; a near-empty transcript cannot ground steps."""
+    return sum(len((chunk.get("text") or "").split()) for chunk in transcript)
+
+
 def ensure_transcript(api, video_path: str, out_dir: str, progress=None) -> list[dict]:
     """Return timed windows, reusing transcript.json when it is already complete."""
     final = os.path.join(out_dir, "transcript.json")

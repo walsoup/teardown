@@ -36,16 +36,30 @@ class MetaApi:
         self.last_usage = None  # usage dict from the most recent response
 
     def upload_file(self, path: str, purpose: str = "user_data") -> str:
-        """Upload a file once, get back a file_id to reference in requests."""
-        with open(path, "rb") as fh:
-            r = self.session.post(
-                f"{BASE_URL}/files",
-                timeout=300,
-                files={"file": (os.path.basename(path), fh)},
-                data={"purpose": purpose},
-            )
-        r.raise_for_status()
-        return r.json()["id"]
+        """Upload a file once, get back a file_id to reference in requests.
+
+        The files endpoint throttles request bursts with a bare 400 (seen after
+        many ASR window uploads in a row), so retry a bounded number of times
+        with backoff. A deterministic rejection (e.g. an unsupported file
+        type) is not retried.
+        """
+        delay = 5.0
+        for attempt in range(4):
+            with open(path, "rb") as fh:
+                r = self.session.post(
+                    f"{BASE_URL}/files",
+                    timeout=300,
+                    files={"file": (os.path.basename(path), fh)},
+                    data={"purpose": purpose},
+                )
+            if r.status_code == 400 and "unsupported file type" in r.text.lower():
+                r.raise_for_status()
+            if r.status_code in (400, 429, 500, 502, 503, 504) and attempt < 3:
+                time.sleep(delay)
+                delay = min(60.0, delay * 4)
+                continue
+            r.raise_for_status()
+            return r.json()["id"]
 
     def respond(self, model: str, content: list[dict], timeout: int = 300, **extra) -> str:
         """One non-streaming Responses call. Returns the output_text."""

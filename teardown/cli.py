@@ -107,7 +107,7 @@ def _real_run(args, duration: float):
     transcript = orchestrate.ensure_transcript(api, args.video, args.out)
     chars = sum(len(chunk.get("text") or "") for chunk in transcript)
     print(f"transcript: {len(transcript)} windows, {chars} chars")
-    if not any((chunk.get("text") or "").strip() for chunk in transcript):
+    if orchestrate.narration_words(transcript) < orchestrate.MIN_NARRATION_WORDS:
         raise SystemExit(
             "no narration detected in this video. teardown needs narrated footage; "
             "without speech the guide's steps and times can't be verified")

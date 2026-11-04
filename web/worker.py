@@ -150,7 +150,7 @@ def run_pipeline(job_id, video_path):
             _write_status(job_id, status="processing", stage=f"transcribing {i} of {n}")
 
         transcript = orchestrate.ensure_transcript(api, video_path, out, progress=_asr_progress)
-        if not any((c.get("text") or "").strip() for c in transcript):
+        if orchestrate.narration_words(transcript) < orchestrate.MIN_NARRATION_WORDS:
             raise ValueError(
                 "no narration detected in this video - teardown needs narrated "
                 "footage; without speech the guide's steps and times can't be verified")

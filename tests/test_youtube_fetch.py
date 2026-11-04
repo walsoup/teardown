@@ -86,3 +86,35 @@ def test_public_https_rejects_userinfo_and_garbage():
     assert _public_https("") is None
     assert _public_https(None) is None
     assert _public_https("not a url") is None
+
+from http_util import origin_ok  # noqa: E402
+
+class _H:
+    def __init__(self, headers, peer):
+        self.headers = headers
+        self.client_address = (peer, 1234)
+
+HOST = {"Host": "teardown-0k03.onrender.com"}
+
+def test_origin_ok_same_site():
+    h = _H({**HOST, "Origin": "https://teardown-0k03.onrender.com"}, "127.0.0.1")
+    assert origin_ok(h)
+
+def test_origin_ok_rejects_cross_site():
+    h = _H({**HOST, "Origin": "https://evil.example"}, "127.0.0.1")
+    assert not origin_ok(h)
+
+def test_origin_ok_null_origin_webview_loopback_peer():
+    # WhatsApp/Android WebView genuine form post behind the co-located proxy
+    h = _H({**HOST, "Origin": "null",
+            "Referer": "https://teardown-0k03.onrender.com/"}, "127.0.0.1")
+    assert origin_ok(h)
+
+def test_origin_ok_null_origin_foreign_referer_rejected():
+    # sandboxed cross-site iframe forcing Origin: null must not pass
+    h = _H({**HOST, "Origin": "null", "Referer": "https://evil.example/page"}, "127.0.0.1")
+    assert not origin_ok(h)
+
+def test_origin_ok_missing_origin_non_loopback_rejected():
+    h = _H(HOST, "10.1.2.3")
+    assert not origin_ok(h)

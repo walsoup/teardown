@@ -125,12 +125,23 @@ def parse_byte_range(header, size):
 
 
 def origin_ok(handler):
-    """Same-origin POSTs only. A missing Origin is allowed from loopback."""
+    """Same-origin POSTs only. `Origin: null` (sent by some Android WebViews
+    and sandboxed/privacy contexts on genuine same-site form posts) and a
+    missing Origin fall through to the loopback allowance; the HMAC form
+    token checked after this remains the cross-site gate, and a cross-site
+    page cannot strip its real Origin the way these contexts do. A cross-site
+    sandboxed iframe can force `null`, but its Referer still leaks and the
+    token check still rejects it."""
     origin = handler.headers.get("Origin")
     host = handler.headers.get("Host", "")
-    if origin:
+    if origin and origin != "null":
         parsed = urlparse(origin)
         return parsed.netloc == host and parsed.scheme in ("http", "https")
+    ref = handler.headers.get("Referer")
+    if origin == "null" and ref:
+        parsed = urlparse(ref)
+        if parsed.netloc != host or parsed.scheme not in ("http", "https"):
+            return False
     return handler.client_address[0] in ("127.0.0.1", "::1")
 
 

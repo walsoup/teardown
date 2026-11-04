@@ -164,8 +164,12 @@ def illustrate(api, video_path: str, plan: dict, out_dir: str, *,
         if os.path.isfile(marker_path) and _source_matches(out_dir, video_path, "steps"):
             saved = read_json(marker_path)
             if isinstance(saved, dict) and saved.get("image") and not saved.get("segment_retryable"):
-                step.update(saved)
-                return
+                # The marker claims a finished image; only trust it while
+                # the file is still on disk (cleanup/disk pressure may
+                # have removed it after the marker was written).
+                if os.path.isfile(os.path.join(out_dir, saved["image"])):
+                    step.update(saved)
+                    return
         offsets = (-8, -4, 0, 4, 8)
         times = []
         paths = []
@@ -250,13 +254,13 @@ def illustrate(api, video_path: str, plan: dict, out_dir: str, *,
                 on_step(index, count)
         return plan
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(one, index, step) for index, step in enumerate(steps)]
+        futures = {pool.submit(one, index, step): index for index, step in enumerate(steps)}
         finished = 0
         for future in as_completed(futures):
             future.result()
             finished += 1
             if on_step:
-                on_step(finished - 1, count)
+                on_step(futures[future], count)
     return plan
 
 

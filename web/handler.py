@@ -313,7 +313,7 @@ class H(BaseHTTPRequestHandler):
             rail_html = "".join(rail_row_html(i, s) for i, s in enumerate(plan["steps"]))
             step_times = json_for_script([s["t"] for s in plan["steps"]])
             step_hardware = json_for_script([{"fasteners": s.get("fasteners", ""), "connectors": s.get("connectors", "")} for s in plan["steps"]])
-            poster = plan["steps"][0]["image"] if plan.get("steps") else ""
+            poster = plan["steps"][0].get("image") if plan.get("steps") else ""
             poster_url = f"/jobs/{job}/{poster}" if poster else ""
 
             from teardown.present import unique_parts

@@ -337,9 +337,14 @@ def test_transient_miss_retried_on_resume(tmp_path):
 def test_clean_zero_match_stays_cached(tmp_path):
     orchestrate, np, out, vid, ctx = _illustrate_setup(tmp_path)
     plan = {"steps": [{"t": 1.0, "part": "battery", "title": "T"}], "duration": 60.0}
+
+    def write_final(*a, **k):
+        with open(a[4], "wb") as fh:  # annotate contract: write the final frame
+            fh.write(b"x")
+
     with ctx:
         orchestrate.illustrate(None, str(vid), plan, str(out), segment_part=lambda *a: None,
-                               annotate=lambda *a, **k: None, pick_frame=lambda *a: 0, workers=1)
+                               annotate=write_final, pick_frame=lambda *a: 0, workers=1)
     calls = []
     plan2 = {"steps": [{"t": 1.0, "part": "battery", "title": "T"}], "duration": 60.0}
 
@@ -438,8 +443,266 @@ def test_load_plan_rejects_unrenderable_steps(tmp_path, monkeypatch):
     assert jobs.load_plan("badjob") is None
     (data / "goodjob").mkdir()
     (data / "goodjob" / "plan.json").write_text(
-        json.dumps({"device": "x", "steps": [{"title": "T", "t": 1.0}]}), encoding="utf-8")
+        json.dumps({"device": "x", "steps": [{"title": "T", "t": 1.0, "image": "s.png"}]}),
+        encoding="utf-8")
     assert jobs.load_plan("goodjob") is not None
+
+
+# --- second audit round (G1-G8) ---
+
+def _job_dir(tmp_path, monkeypatch, name):
+    import jobs
+
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    monkeypatch.setattr(jobs, "DATA", str(data))
+    (data / name).mkdir(exist_ok=True)
+    return data / name
+
+
+# G1: steps without an image path are malformed -> None -> 404, not a 500.
+def test_load_plan_rejects_steps_without_image(tmp_path, monkeypatch):
+    import jobs
+
+    d = _job_dir(tmp_path, monkeypatch, "noimg")
+    (d / "plan.json").write_text(
+        json.dumps({"device": "x", "steps": [{"title": "T", "t": 1.0}]}), encoding="utf-8")
+    assert jobs.load_plan("noimg") is None
+
+
+def test_guide_poster_tolerates_missing_image(tmp_path, monkeypatch):
+    import threading
+    from http.client import HTTPConnection
+    from http.server import ThreadingHTTPServer
+
+    import handler
+    import jobs
+    from http_util import cookie_header
+
+    data = tmp_path / "data"
+    data.mkdir()
+    monkeypatch.setattr(jobs, "DATA", str(data))
+    monkeypatch.setattr("config.DATA", str(data))
+    job = "ab" * 16
+    (data / job).mkdir()
+    (data / job / "plan.json").write_text(
+        json.dumps({"device": "x", "steps": [
+            {"title": "T", "t": 1.0, "image": "steps/step-1.png"}]}),
+        encoding="utf-8")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler.H)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        cookie = cookie_header([job]).split(";", 1)[0]
+        conn = HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", f"/jobs/{job}", headers={"Cookie": cookie})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert b"stepTimes" in resp.read()
+        conn.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+# G7: non-finite t and empty step lists are malformed.
+def test_load_plan_rejects_nan_t_and_empty_steps(tmp_path, monkeypatch):
+    import jobs
+
+    d = _job_dir(tmp_path, monkeypatch, "nanjob")
+    (d / "plan.json").write_text(
+        '{"device": "x", "steps": [{"title": "T", "t": NaN, "image": "s.png"}]}',
+        encoding="utf-8")
+    assert jobs.load_plan("nanjob") is None
+    e = _job_dir(tmp_path, monkeypatch, "emptyjob")
+    (e / "plan.json").write_text(
+        json.dumps({"device": "x", "steps": []}), encoding="utf-8")
+    assert jobs.load_plan("emptyjob") is None
+
+
+# G2: the reservation covers the planner's JSON-repair retry (2 calls).
+def test_reservation_covers_planner_repair_retry(monkeypatch):
+    import budget
+
+    monkeypatch.setattr(budget, "TOKEN", "")
+    res = budget.job_reservation(90, 6, "muse-spark-1.3")
+    planner_one = (budget.EST["planner_input_tokens"] * budget.spark_rates("muse-spark-1.3")[0]
+                   + budget.EST["planner_output_tokens"] * budget.spark_rates("muse-spark-1.3")[1])
+    assert res >= 2 * planner_one
+    meter = budget.JobMeter("job", res, "muse-spark-1.3")
+    for _ in range(2):
+        est = meter.spark_before(budget.EST["planner_input_tokens"],
+                                 budget.EST["planner_output_tokens"])
+        meter.spark_after(est, None)
+    assert meter.actual == pytest.approx(2 * planner_one)
+
+
+# G3: concurrent check/add pairs cannot overspend the reservation.
+def test_meter_atomic_under_concurrency(monkeypatch):
+    import budget
+
+    monkeypatch.setattr(budget, "TOKEN", "")
+    meter = budget.JobMeter("job", 0.002, "muse-spark-1.3")
+    est = meter.spark_before(100, 100)
+    meter.spark_after(est, None)
+    meter2 = budget.JobMeter("job2", 0.002, "muse-spark-1.3")
+    e = 100 * meter2.rin + 100 * meter2.rout
+    assert e > 0
+    outcomes = []
+
+    def work():
+        try:
+            got = meter2.spark_before(100, 100)
+            import time as _time
+            _time.sleep(0.02)
+            meter2.spark_after(got, None)
+            outcomes.append(True)
+        except budget.BudgetExhausted:
+            outcomes.append(False)
+
+    threads = [threading.Thread(target=work) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes.count(True) * e <= 0.002 + 1e-9
+    assert meter2.actual <= 0.002 + 1e-9
+    # Sequential semantics preserved: under-estimate charges actual...
+    seq = budget.JobMeter("seq", 50, "muse-spark-1.3")
+    s_est = seq.spark_before(1000, 100)
+    seq.spark_after(s_est, {"input_tokens": 0, "output_tokens": 0})
+    assert seq.actual == pytest.approx(s_est)
+    # ...and unpaired _add still moves actual (test_hardening compat).
+    seq2 = budget.JobMeter("seq2", 50, "muse-spark-1.3")
+    seq2.spark_after(1.0, {"input_tokens": 12, "output_tokens": 4})
+    assert seq2.actual == pytest.approx(1.0)
+
+
+# G4: deleting a finished step PNG forces re-segmentation on resume.
+def test_resume_rebuilds_missing_step_image(tmp_path, monkeypatch):
+    import os
+
+    import numpy as np
+    from unittest.mock import patch
+
+    from teardown import orchestrate
+
+    cv2 = pytest.importorskip("cv2")
+    out = tmp_path / "out"
+    (out / "steps").mkdir(parents=True)
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"x" * 100)
+
+    def fake_extract(vp, times, paths):
+        for p in paths:
+            cv2.imwrite(p, np.zeros((8, 8, 3), np.uint8))
+        return paths
+
+    def seg(api, frame, part):
+        return {"bounds": (0, 0, 4, 4), "mask": np.ones((4, 4), np.uint8), "confidence": 0.9}
+
+    def ann(frame, bounds, mask, index, final, **kw):
+        cv2.imwrite(final, np.zeros((8, 8, 3), np.uint8))
+
+    plan = {"steps": [{"t": 1.0, "part": "battery", "title": "T"}], "duration": 60.0}
+    with patch.object(orchestrate.ingest, "extract_frames", side_effect=fake_extract):
+        orchestrate.illustrate(None, str(vid), plan, str(out), segment_part=seg,
+                               annotate=ann, pick_frame=lambda *a: 0, workers=1)
+    os.remove(os.path.join(str(out), plan["steps"][0]["image"]))
+    calls = []
+
+    def counting(api, frame, part):
+        calls.append(part)
+        return seg(api, frame, part)
+
+    plan2 = {"steps": [{"t": 1.0, "part": "battery", "title": "T"}], "duration": 60.0}
+    with patch.object(orchestrate.ingest, "extract_frames", side_effect=fake_extract):
+        orchestrate.illustrate(None, str(vid), plan2, str(out), segment_part=counting,
+                               annotate=ann, pick_frame=lambda *a: 0, workers=1)
+    assert calls == ["battery"]
+    assert os.path.isfile(os.path.join(str(out), plan2["steps"][0]["image"]))
+
+
+# G6: threaded progress reports the finished step's own index.
+def test_threaded_on_step_reports_step_index(tmp_path):
+    import time
+
+    import numpy as np
+    from unittest.mock import patch
+
+    from teardown import orchestrate
+
+    cv2 = pytest.importorskip("cv2")
+    out = tmp_path / "out"
+    (out / "steps").mkdir(parents=True)
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"y" * 100)
+
+    with patch.object(orchestrate.ingest, "extract_frames",
+                      side_effect=lambda vp, ts, ps: [
+                          cv2.imwrite(p, np.zeros((8, 8, 3), np.uint8)) or p for p in ps]):
+        plan = {"steps": [{"t": float(i), "part": ("SLOW" if i == 0 else f"F{i}"),
+                           "title": f"T{i}"} for i in range(4)], "duration": 60.0}
+
+        def seg(api, frame, part):
+            time.sleep(0.3 if part == "SLOW" else 0.01)
+            return {"bounds": (0, 0, 4, 4), "mask": np.ones((4, 4), np.uint8),
+                    "confidence": 0.9}
+
+        seen = []
+        orchestrate.illustrate(
+            None, str(vid), plan, str(out), segment_part=seg,
+            annotate=lambda f, b, m, i, fin, **k: cv2.imwrite(
+                fin, np.zeros((8, 8, 3), np.uint8)),
+            pick_frame=lambda *a: 0, workers=4, on_step=lambda i, n: seen.append(i))
+    assert sorted(seen) == [0, 1, 2, 3]
+    assert seen[0] != 0  # the slow step 0 cannot finish first
+
+
+# G5: webm remux replaces video.mp4 in place, no sidecar litter.
+def test_worker_remux_replaces_video_mp4(tmp_path):
+    pytest.importorskip("cv2")
+    import shutil
+    import subprocess
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is not installed")
+    webm = tmp_path / "clip.webm"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64:d=1",
+                    "-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", str(webm)],
+                   check=True, capture_output=True)
+    from teardown.ingest import is_ebml, remux_to_mp4
+
+    assert is_ebml(str(webm))
+    jobdir = tmp_path / "job"
+    jobdir.mkdir()
+    video_path = str(jobdir / "video.mp4")
+    shutil.copy(str(webm), video_path)
+    remuxed = remux_to_mp4(video_path)
+    os.replace(remuxed, video_path)  # same swap worker.py performs
+    assert not is_ebml(video_path)
+    assert sorted(os.listdir(jobdir)) == ["video.mp4"]
+
+
+# G8: a non-numeric TEARDOWN_MAX_DURATION exits 1 cleanly.
+def test_cli_bad_max_duration_clean_exit(tmp_path, monkeypatch, capsys):
+    import shutil
+    import subprocess
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is not installed")
+    video = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)],
+                   check=True, capture_output=True)
+    from teardown import cli
+
+    monkeypatch.setenv("TEARDOWN_MAX_DURATION", "abc")
+    assert cli.main([str(video), "--mock", "--out", str(tmp_path / "o")]) == 1
+    err = capsys.readouterr().err
+    assert "TEARDOWN_MAX_DURATION" in err
+    assert "Traceback" not in err
 
 
 def test_cli_missing_key_clean_message(capsys, monkeypatch):

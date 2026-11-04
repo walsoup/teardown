@@ -1,5 +1,6 @@
 """In-memory job table and on-disk plan/status helpers."""
 import json
+import math
 import os
 import threading
 
@@ -31,6 +32,8 @@ def load_plan(job_id):
         return None
     if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
         return None
+    if not plan["steps"]:
+        return None
     if not isinstance(plan.get("device"), str):
         return None
     for step in plan["steps"]:
@@ -39,6 +42,12 @@ def load_plan(job_id):
         if not isinstance(step, dict):
             return None
         if not isinstance(step.get("title"), str) or not isinstance(step.get("t"), (int, float)):
+            return None
+        if isinstance(step.get("t"), bool) or not math.isfinite(step["t"]):
+            return None
+        # The pipeline always writes an image path per step; a plan
+        # missing it is malformed, not renderable.
+        if not isinstance(step.get("image"), str) or not step["image"]:
             return None
     return plan
 

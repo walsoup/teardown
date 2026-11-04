@@ -77,7 +77,11 @@ def _run(args) -> int:
         # mp4 wrapper are accepted, and a copy-remux costs seconds.
         args.video = ingest.remux_to_mp4(args.video)
     duration = ingest.probe_duration(args.video)
-    cap = float(os.environ.get("TEARDOWN_MAX_DURATION", "1200"))
+    try:
+        cap = float(os.environ.get("TEARDOWN_MAX_DURATION", "1200"))
+    except ValueError:
+        print("TEARDOWN_MAX_DURATION is not a number.", file=sys.stderr)
+        return 1
     print(f"clip: {duration:.1f}s")
     if not args.mock and not args.allow_long and duration > cap:
         print(f"clip is {duration:.0f}s; the cap is {cap:.0f}s. Pass --allow-long to override.",

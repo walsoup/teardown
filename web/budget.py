@@ -286,8 +286,10 @@ def job_reservation(duration_s, max_steps, spark_model):
     rin, rout = spark_rates(spark_model)
     n_windows = max(1, int(-(-duration_s // 30)))
     asr = (duration_s + n_windows * EST["asr_window_seconds_pad"]) * RATES["asr_second"]
-    planner = (EST["planner_input_tokens"] * rin
-               + EST["planner_output_tokens"] * rout)
+    # plan_steps retries once with a text-only repair call on bad JSON, so
+    # the reservation covers up to 2 planner-sized spends.
+    planner = 2 * (EST["planner_input_tokens"] * rin
+                   + EST["planner_output_tokens"] * rout)
     per_step = (EST["pick_input_tokens"] * rin
                 + EST["pick_output_tokens"] * rout
                 + EST["sam_image"] * RATES["sam_image"])
@@ -310,14 +312,24 @@ class JobMeter:
         self.overage_posted = 0.0
         self.rin, self.rout = spark_rates(spark_model)
         self._lock = threading.Lock()
+        self._inflight = 0.0
         self._asr_headroom_checks = 0
 
     def _check(self, est, headroom=True):
+        # Atomically reserve the estimate: the provisional amount lands in
+        # _inflight under the same lock as the fit test, so concurrent
+        # threads cannot all pass the check before any of them is charged.
+        # _add releases the hold and charges the real cost.
+        if est < 0:
+            est = 0.0
         with self._lock:
-            if self.actual + est > self.reservation + 1e-9:
+            if self.actual + self._inflight + est > self.reservation + 1e-9:
                 raise BudgetExhausted(
                     "job aborted: cost estimate exceeded its reservation")
+            self._inflight += est
         if headroom and not ensure_call_headroom(self.job_id, est):
+            with self._lock:
+                self._inflight -= est
             raise BudgetExhausted("call would exceed the shared budget cap")
 
     def _add(self, est, actual):
@@ -327,6 +339,9 @@ class JobMeter:
         if extra > 0:
             add_overage(self.job_id, extra)
         with self._lock:
+            # Release this call's hold and charge its real cost; a call
+            # that came in under estimate returns the difference.
+            self._inflight = max(0.0, self._inflight - est)
             self.actual += actual
             if extra > 0:
                 self.overage_posted += extra

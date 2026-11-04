@@ -99,7 +99,14 @@ def run_job(job_id, video_path, url, ip):
             # Meta's files API rejects video/webm; the same streams in an mp4
             # wrapper are accepted, and a copy-remux costs seconds.
             set_stage(job_id, "converting the video for the model")
-            video_path = remux_to_mp4(video_path)
+            remuxed = remux_to_mp4(video_path)
+            # The guide page plays video.mp4, so swap the remuxed bytes in
+            # place instead of leaving a video.mp4.mp4 sidecar the page
+            # never references (and would serve EBML bytes as video/mp4).
+            try:
+                os.replace(remuxed, video_path)
+            except OSError:
+                video_path = remuxed
         JOBS[job_id]["duration"] = duration
         if ACTIVE_LOCK.locked():
             set_stage(job_id, "waiting for another guide to finish",

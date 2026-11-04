@@ -1,9 +1,7 @@
 {
  "cap_usd": 20.0,
  "spent_usd": 1.116927,
- "reserved": {
-  "t4rtx3090aaaaaaaaaaaaaaaaaaaaaa01": 0.574901
- },
+ "reserved": {},
  "history": [
   {
    "job": "test-job-1",
@@ -89,9 +87,12 @@
    "job": "d441c95cdd1d411ea5244404dd8347bf",
    "actual_usd": 0.340605,
    "ts": 1793760057
+  },
+  {
+   "job": "t4rtx3090aaaaaaaaaaaaaaaaaaaaaa01",
+   "actual_usd": 0.0,
+   "ts": 1793760067
   }
  ],
- "reserved_at": {
-  "t4rtx3090aaaaaaaaaaaaaaaaaaaaaa01": 1793760064
- }
+ "reserved_at": {}
 }

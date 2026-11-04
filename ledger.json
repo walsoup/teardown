@@ -1,9 +1,7 @@
 {
  "cap_usd": 20.0,
  "spent_usd": 2.318758,
- "reserved": {
-  "d441c95cdd1d411ea5244404dd8347bf": 0.540368
- },
+ "reserved": {},
  "history": [
   {
    "job": "test-job-1",
@@ -139,9 +137,12 @@
    "job": "t7guardaaaaaaaaaaaaaaaaaaaaaaa01",
    "actual_usd": 0.064744,
    "ts": 1793765918
+  },
+  {
+   "job": "d441c95cdd1d411ea5244404dd8347bf",
+   "actual_usd": 0.0,
+   "ts": 1793766071
   }
  ],
- "reserved_at": {
-  "d441c95cdd1d411ea5244404dd8347bf": 1793766068
- }
+ "reserved_at": {}
 }

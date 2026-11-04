@@ -1,9 +1,7 @@
 {
  "cap_usd": 20.0,
- "spent_usd": 0.736541,
- "reserved": {
-  "856f48b3bfc645a7800ded76e9c7781b": 0.566503
- },
+ "spent_usd": 0.776322,
+ "reserved": {},
  "history": [
   {
    "job": "test-job-1",
@@ -79,9 +77,12 @@
    "job": "86e7a0ec5a54400196f5814618b88199",
    "actual_usd": 0.0548,
    "ts": 1793758735
+  },
+  {
+   "job": "856f48b3bfc645a7800ded76e9c7781b",
+   "actual_usd": 0.039781,
+   "ts": 1793759809
   }
  ],
- "reserved_at": {
-  "856f48b3bfc645a7800ded76e9c7781b": 1793759419
- }
+ "reserved_at": {}
 }

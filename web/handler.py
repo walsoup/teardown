@@ -36,7 +36,7 @@ from pages import (
     _missing_page,
     job_card,
 )
-from pdf import build_pdf
+from pdf import build_pdf, is_complete_pdf
 from upload import _boundary_token, _carve, _clean_credit, _file_part, _stream, _text_field
 from worker import run_job
 
@@ -327,22 +327,29 @@ class H(BaseHTTPRequestHandler):
                           if plan.get("truncated") else "")
             credit = (plan.get("attribution") or "").strip()
             credit_html = f'<p class="mono-label">Source footage: {html_mod.escape(credit)}</p>' if credit else ""
-            # User text is substituted before the hardware JSON token, and that
-            # token is a value that cannot appear in the escaped fields above.
-            resp = (GUIDE.replace("__STEPHARDWARE__", step_hardware)
-                    .replace("__STEPTIMES__", step_times)
-                    .replace("__CSS__", CSS)
-                    .replace("__DEVICE__", html_mod.escape(plan["device"]))
-                    .replace("__NSTEPS__", str(n_steps))
-                    .replace("__JOB__", job)
-                    .replace("__POSTER__", poster_url)
-                    .replace("__TOOLS__", tools_html)
-                    .replace("__PARTS__", parts_html)
-                    .replace("__TRUNCATION__", trunc_html)
-                    .replace("__ATTRIBUTION__", credit_html)
-                    .replace("__STEPS__", steps_html)
-                    .replace("__RAIL__", rail_html)
-                    .replace("__PROGRESS__", progress_html))
+            # Single-pass substitution: model-controlled text (device name,
+            # quotes, hardware notes) can literally contain token-looking
+            # text such as "__PROGRESS__". A chained str.replace would
+            # re-expand those into page markup; substituting all tokens in
+            # one regex pass never rescans inserted content.
+            subs = {
+                "__STEPHARDWARE__": step_hardware,
+                "__STEPTIMES__": step_times,
+                "__CSS__": CSS,
+                "__DEVICE__": html_mod.escape(plan["device"]),
+                "__NSTEPS__": str(n_steps),
+                "__JOB__": job,
+                "__POSTER__": poster_url,
+                "__TOOLS__": tools_html,
+                "__PARTS__": parts_html,
+                "__TRUNCATION__": trunc_html,
+                "__ATTRIBUTION__": credit_html,
+                "__STEPS__": steps_html,
+                "__RAIL__": rail_html,
+                "__PROGRESS__": progress_html,
+            }
+            resp = re.sub(r"__(?:STEPHARDWARE|STEPTIMES|CSS|DEVICE|NSTEPS|JOB|POSTER|TOOLS|PARTS|TRUNCATION|ATTRIBUTION|STEPS|RAIL|PROGRESS)__",
+                          lambda match: subs[match.group(0)], GUIDE)
             if os.environ.get("TEARDOWN_NO_PDF") == "1":
                 resp = re.sub(r'<a class="pill header-pdf".*?</a>', '', resp, flags=re.S)
             self._send(resp)
@@ -356,6 +363,14 @@ class H(BaseHTTPRequestHandler):
                 self._send("not found", "text/plain", 404)
                 return
             pdf = safe_job_path(job, "guide.pdf")
+            if pdf and not is_complete_pdf(pdf):
+                # A previous run cached a truncated PDF; rebuild instead of
+                # serving it forever.
+                try:
+                    os.remove(pdf)
+                except OSError:
+                    pass
+                pdf = None
             if not pdf:
                 try:
                     build_pdf(job)

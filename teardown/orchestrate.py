@@ -44,10 +44,49 @@ def narration_words(transcript) -> int:
     return sum(len((chunk.get("text") or "").split()) for chunk in transcript)
 
 
+def _video_fingerprint(video_path: str) -> dict:
+    """Identity of the source file, so resume caches are never reused for a
+    different video dropped into the same output directory."""
+    try:
+        stat = os.stat(video_path)
+    except OSError:
+        return {}
+    return {"path": os.path.abspath(video_path), "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns}
+
+
+def _read_source(out_dir: str, name: str):
+    """Fingerprint recorded alongside the `name` artifact, or None."""
+    sidecar = os.path.join(out_dir, name + ".video.json")
+    if not os.path.isfile(sidecar):
+        return None
+    try:
+        saved = read_json(sidecar)
+    except (OSError, ValueError):
+        return None
+    return saved if isinstance(saved, dict) else None
+
+
+def _source_matches(out_dir: str, video_path: str, name: str) -> bool:
+    """True when the `name` artifact was cached from this exact video file.
+
+    Each stage (transcript, plan, steps) keeps its own sidecar: sharing one
+    record lets an earlier stage's rebuild validate a later stage's stale
+    cache from the previous video.
+    """
+    current = _video_fingerprint(video_path)
+    return bool(current) and _read_source(out_dir, name) == current
+
+
+def _record_source(out_dir: str, video_path: str, name: str) -> None:
+    atomic_json(os.path.join(out_dir, name + ".video.json"),
+                _video_fingerprint(video_path))
+
+
 def ensure_transcript(api, video_path: str, out_dir: str, progress=None) -> list[dict]:
     """Return timed windows, reusing transcript.json when it is already complete."""
     final = os.path.join(out_dir, "transcript.json")
-    if os.path.isfile(final):
+    if os.path.isfile(final) and _source_matches(out_dir, video_path, "transcript"):
         data = read_json(final)
         if isinstance(data, list):
             return data
@@ -55,6 +94,7 @@ def ensure_transcript(api, video_path: str, out_dir: str, progress=None) -> list
     wav = ingest.extract_audio(video_path, wav_path)
     if not wav or not ingest.has_speech(wav):
         atomic_json(final, [])
+        _record_source(out_dir, video_path, "transcript")
         return []
     offset = ingest.probe_audio_start(video_path)
     windows = api.transcribe_timed(
@@ -64,24 +104,38 @@ def ensure_transcript(api, video_path: str, out_dir: str, progress=None) -> list
         offset=offset,
     )
     atomic_json(final, windows)
+    _record_source(out_dir, video_path, "transcript")
     return windows
 
 
 def ensure_plan(api, video_path: str, transcript, duration: float, out_dir: str, plan_fn) -> dict:
     """Return the plan, uploading the video only when no file id is saved yet."""
     partial = os.path.join(out_dir, "plan.partial.json")
-    if os.path.isfile(partial):
+    if os.path.isfile(partial) and _source_matches(out_dir, video_path, "plan"):
         plan = read_json(partial)
         if isinstance(plan, dict) and plan.get("steps"):
             return plan
     upload_path = os.path.join(out_dir, "upload.json")
     if os.path.isfile(upload_path):
-        video_id = read_json(upload_path)["file_id"]
+        try:
+            saved_upload = read_json(upload_path)
+        except (OSError, ValueError):
+            saved_upload = None
+        if (isinstance(saved_upload, dict)
+                and saved_upload.get("video") == _video_fingerprint(video_path)
+                and bool(_video_fingerprint(video_path))):
+            video_id = saved_upload["file_id"]
+        else:
+            video_id = api.upload_file(video_path)
+            atomic_json(upload_path, {"file_id": video_id,
+                                      "video": _video_fingerprint(video_path)})
     else:
         video_id = api.upload_file(video_path)
-        atomic_json(upload_path, {"file_id": video_id})
+        atomic_json(upload_path, {"file_id": video_id,
+                                  "video": _video_fingerprint(video_path)})
     plan = plan_fn(api, video_id, transcript, duration)
     atomic_json(partial, plan)
+    _record_source(out_dir, video_path, "plan")
     return plan
 
 
@@ -92,14 +146,24 @@ def illustrate(api, video_path: str, plan: dict, out_dir: str, *,
     steps = plan.get("steps") or []
     steps_dir = os.path.join(out_dir, "steps")
     os.makedirs(steps_dir, exist_ok=True)
+    if not _source_matches(out_dir, video_path, "steps"):
+        # Markers from a different video: drop them rather than returning
+        # the first video's frames for this video's steps.
+        for name in os.listdir(steps_dir):
+            if name.endswith((".json", ".png")):
+                try:
+                    os.remove(os.path.join(steps_dir, name))
+                except OSError:
+                    pass
+        _record_source(out_dir, video_path, "steps")
     duration = float(plan.get("duration") or 0.0)
     count = len(steps)
 
     def one(index: int, step: dict) -> None:
         marker_path = os.path.join(steps_dir, f"step-{index + 1}.json")
-        if os.path.isfile(marker_path):
+        if os.path.isfile(marker_path) and _source_matches(out_dir, video_path, "steps"):
             saved = read_json(marker_path)
-            if isinstance(saved, dict) and saved.get("image"):
+            if isinstance(saved, dict) and saved.get("image") and not saved.get("segment_retryable"):
                 step.update(saved)
                 return
         offsets = (-8, -4, 0, 4, 8)
@@ -153,18 +217,25 @@ def illustrate(api, video_path: str, plan: dict, out_dir: str, *,
                 step["confidence"] = hit.get("confidence")
                 step["retried"] = bool(hit.get("retried"))
                 step["prompt"] = hit.get("prompt") or step.get("part") or ""
+                step["segment_retryable"] = False
             else:
                 annotate(frame, (0, 0, 0, 0), np.zeros((1, 1), dtype=np.uint8), index + 1, final,
                          part_name=step.get("part") or "", highlighted=False)
                 step["segmented"] = False
+                step["segment_retryable"] = False
             step["image"] = os.path.relpath(final, out_dir).replace(os.sep, "/")
             step["step_error"] = ""
         except Exception as exc:
             if exc.__class__.__name__ == "BudgetExhausted":
                 raise
+            from .segment import SegmentTransient
             step["segmented"] = False
             step["image"] = os.path.relpath(frame, out_dir).replace(os.sep, "/")
             step["step_error"] = str(exc)[:200]
+            # A transient SAM failure is retryable on a later run; a clean
+            # zero-match is final. Only the former skips the resume
+            # short-circuit above.
+            step["segment_retryable"] = isinstance(exc, SegmentTransient)
         step["candidates"] = [os.path.relpath(path, out_dir).replace(os.sep, "/")
                               for _t, path in candidates]
         atomic_json(marker_path, _marker(step))
@@ -193,6 +264,7 @@ def _marker(step: dict) -> dict:
     return {
         "image": step.get("image") or "",
         "segmented": bool(step.get("segmented")),
+        "segment_retryable": bool(step.get("segment_retryable")),
         "step_error": step.get("step_error") or "",
         "candidates": step.get("candidates") or [],
         "confidence": step.get("confidence"),

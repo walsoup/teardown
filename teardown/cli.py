@@ -19,6 +19,7 @@ import sys
 import numpy as np
 
 from . import guide, ingest, orchestrate, render
+from .meta_api import MissingApiKey
 
 
 def main(argv=None) -> int:
@@ -43,6 +44,18 @@ def main(argv=None) -> int:
     except FileNotFoundError:
         print("ffmpeg or ffprobe was not found on PATH.", file=sys.stderr)
         return 1
+    except RuntimeError as exc:
+        # A failed fallback frame extract (ingest.extract_frames raises
+        # RuntimeError when no frames come out) happens after the full API
+        # spend; report it instead of a traceback.
+        print(f"could not finish that video: {exc}", file=sys.stderr)
+        return 1
+    except MissingApiKey as exc:
+        # Same operator-facing message SystemExit used to print; as an
+        # Exception it no longer bypasses web error handlers (F1), and the
+        # CLI still reports it cleanly instead of a traceback.
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 def _run(args) -> int:
@@ -59,6 +72,10 @@ def _run(args) -> int:
     if not ingest.looks_like_container(args.video):
         print("that file is not an mp4, mov, or webm.", file=sys.stderr)
         return 1
+    if ingest.is_ebml(args.video):
+        # The model Files API rejects video/webm; the same streams in an
+        # mp4 wrapper are accepted, and a copy-remux costs seconds.
+        args.video = ingest.remux_to_mp4(args.video)
     duration = ingest.probe_duration(args.video)
     cap = float(os.environ.get("TEARDOWN_MAX_DURATION", "1200"))
     print(f"clip: {duration:.1f}s")
@@ -104,42 +121,46 @@ def _real_run(args, duration: float):
 
     meter = _maybe_meter(duration)
     api = _MeteredApi(MetaApi(), meter) if meter is not None else MetaApi()
-    transcript = orchestrate.ensure_transcript(api, args.video, args.out)
-    chars = sum(len(chunk.get("text") or "") for chunk in transcript)
-    print(f"transcript: {len(transcript)} windows, {chars} chars")
-    if orchestrate.narration_words(transcript) < orchestrate.MIN_NARRATION_WORDS:
-        raise SystemExit(
-            "no narration detected in this video. teardown needs narrated footage; "
-            "without speech the guide's steps and times can't be verified")
+    try:
+        transcript = orchestrate.ensure_transcript(api, args.video, args.out)
+        chars = sum(len(chunk.get("text") or "") for chunk in transcript)
+        print(f"transcript: {len(transcript)} windows, {chars} chars")
+        if orchestrate.narration_words(transcript) < orchestrate.MIN_NARRATION_WORDS:
+            raise SystemExit(
+                "no narration detected in this video. teardown needs narrated footage; "
+                "without speech the guide's steps and times can't be verified")
 
-    def plan_fn(client, video_id, timed, dur):
-        return steps_mod.plan_steps(client, video_id, timed, dur)
+        def plan_fn(client, video_id, timed, dur):
+            return steps_mod.plan_steps(client, video_id, timed, dur)
 
-    plan = orchestrate.ensure_plan(api, args.video, transcript, duration, args.out, plan_fn)
-    plan["duration"] = duration
-    plan["attribution"] = args.attribution or ""
-    print(f"plan: {len(plan['steps'])} steps on a {plan['device']}")
-    orchestrate.illustrate(
-        api, args.video, plan, args.out,
-        segment_part=segment_mod.segment_part,
-        annotate=render.annotate,
-        pick_frame=steps_mod.pick_frame,
-        workers=1,
-    )
-    images = []
-    for index, step in enumerate(plan["steps"]):
-        image = step.get("image") or ""
-        path = os.path.join(args.out, image) if image else ""
-        if not path or not os.path.isfile(path):
-            frame = os.path.join(args.out, f"frame-{index + 1}.png")
-            ingest.extract_frame(args.video, step["t"], frame)
-            path = frame
-            step["segmented"] = False
-        print(f"step {index + 1}: '{step['part']}' -> "
-              f"{'segmented' if step.get('segmented') else 'not highlighted'}")
-        images.append(path)
-    if meter is not None:
-        _settle(meter)
+        plan = orchestrate.ensure_plan(api, args.video, transcript, duration, args.out, plan_fn)
+        plan["duration"] = duration
+        plan["attribution"] = args.attribution or ""
+        print(f"plan: {len(plan['steps'])} steps on a {plan['device']}")
+        orchestrate.illustrate(
+            api, args.video, plan, args.out,
+            segment_part=segment_mod.segment_part,
+            annotate=render.annotate,
+            pick_frame=steps_mod.pick_frame,
+            workers=1,
+        )
+        images = []
+        for index, step in enumerate(plan["steps"]):
+            image = step.get("image") or ""
+            path = os.path.join(args.out, image) if image else ""
+            if not path or not os.path.isfile(path):
+                frame = os.path.join(args.out, f"frame-{index + 1}.png")
+                ingest.extract_frame(args.video, step["t"], frame)
+                path = frame
+                step["segmented"] = False
+            print(f"step {index + 1}: '{step['part']}' -> "
+                  f"{'segmented' if step.get('segmented') else 'not highlighted'}")
+            images.append(path)
+    finally:
+        # The reservation stands until settled; a crashed run must release
+        # it here rather than over-count until the ledger entry expires.
+        if meter is not None:
+            _settle(meter)
     return plan, images
 
 

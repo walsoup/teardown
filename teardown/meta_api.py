@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 
 import requests
@@ -22,18 +23,40 @@ import requests
 BASE_URL = "https://api.meta.ai/v1"
 
 
+class MissingApiKey(Exception):
+    """MODEL_API_KEY is not set or is blank. An Exception (not SystemExit)
+    so `except Exception` pipeline handlers mark the job failed instead of
+    leaving it stuck "processing" forever."""
+
+
 class MetaApi:
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("MODEL_API_KEY")
-        if not self.api_key:
-            raise SystemExit(
+        if not self.api_key or not self.api_key.strip():
+            raise MissingApiKey(
                 "MODEL_API_KEY is not set. Create a key in the Model API "
                 "dashboard (https://dev.meta.ai) under API keys, then:\n"
                 "  export MODEL_API_KEY=..."
             )
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {self.api_key}"
-        self.last_usage = None  # usage dict from the most recent response
+        # Per-thread usage: step illustration shares one client across
+        # worker threads, and MeteredApi reads last_usage after respond()
+        # returns. A plain shared attribute lets one thread's response
+        # overwrite another's before it is read back.
+        self.__dict__["_usage_tls"] = threading.local()
+        self.last_usage = None
+
+    @property
+    def last_usage(self):
+        return getattr(self.__dict__.get("_usage_tls"), "usage", None)
+
+    @last_usage.setter
+    def last_usage(self, value):
+        tls = self.__dict__.get("_usage_tls")
+        if tls is None:
+            self.__dict__["_usage_tls"] = tls = threading.local()
+        tls.usage = value
 
     def upload_file(self, path: str, purpose: str = "user_data") -> str:
         """Upload a file once, get back a file_id to reference in requests.

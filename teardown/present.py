@@ -5,7 +5,15 @@ from __future__ import annotations
 
 def approx_clock(t: float) -> str:
     """Human timestamp. Step times are only known to the ASR window."""
-    t = max(0, int(float(t)))
+    import math
+
+    try:
+        t = float(t)
+    except (TypeError, ValueError):
+        t = 0.0
+    if not math.isfinite(t):
+        t = 0.0
+    t = max(0, int(t))
     return f"about {t // 60:02d}:{t % 60:02d} (±30s)"
 
 

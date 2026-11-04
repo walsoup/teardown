@@ -22,6 +22,14 @@ MIN_CONFIDENCE = 0.35
 MIN_FOREGROUND = 48
 
 
+class SegmentTransient(Exception):
+    """A thrown SAM error, as opposed to a clean zero-match.
+
+    segment_part raises this (instead of returning None) so the caller can
+    record the miss as retryable: a later run may succeed where this one hit
+    a transient API failure."""
+
+
 def evaluate_mask(raster: np.ndarray, bounds: tuple[int, int, int, int],
                   confidence: float | None, min_confidence: float = MIN_CONFIDENCE,
                   min_foreground: int = MIN_FOREGROUND) -> bool:
@@ -68,9 +76,10 @@ def segment_part(api: MetaApi, frame_png: str, part: str, allow_retry: bool = Fa
             if attempt == 0:
                 time.sleep(0.4)
     if last_err is not None:
-        # A thrown SAM error is a miss, same as zero matches: the caller keeps
-        # the clean frame instead of a blank step.
-        return None
+        # A thrown SAM error is a transient miss, not a determinate
+        # zero-match: raise so the caller can mark the step retryable
+        # instead of caching the miss forever.
+        raise SegmentTransient(f"segmentation failed, retryable later: {last_err}")
     # Fail closed: a loose-noun retry too often lands on the wrong instance of
     # the noun (a table cable for "display cable"), and a confident wrong
     # highlight misleads more than no highlight. Retry stays available for
@@ -78,7 +87,12 @@ def segment_part(api: MetaApi, frame_png: str, part: str, allow_retry: bool = Fa
     if hit is None and allow_retry and " " in part.strip():
         simple = part.strip().split()[-1]
         if simple != part.strip():
-            hit = _segment_once(api, frame_png, simple)
+            try:
+                hit = _segment_once(api, frame_png, simple)
+            except Exception as exc:
+                if exc.__class__.__name__ == "BudgetExhausted":
+                    raise
+                raise SegmentTransient(f"segmentation retry failed, retryable later: {exc}")
             if hit is not None:
                 hit["retried"] = True
     return hit

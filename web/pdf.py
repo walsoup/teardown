@@ -154,26 +154,50 @@ ul.lines li {{ margin: 1mm 0; }}
         )
         # Current Chrome often writes the PDF and then stays up on a dead
         # session bus. Treat a finished file as success and stop the process.
+        # A file is finished only when Chrome has exited AND the bytes are a
+        # complete PDF; a size check alone can promote a truncated write.
         deadline = time.time() + 45
         while time.time() < deadline:
-            if os.path.isfile(partial) and os.path.getsize(partial) > 1000:
-                time.sleep(0.2)
-                break
             if proc.poll() is not None:
+                break
+            if is_complete_pdf(partial):
                 break
             time.sleep(0.15)
     except OSError:
         return None
     finally:
         if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+            if is_complete_pdf(partial):
+                # Complete bytes on disk; the lingering process is the known
+                # dead-session-bus hang, not more output to wait for.
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            else:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
         shutil.rmtree(profile, ignore_errors=True)
-    if os.path.exists(partial) and os.path.getsize(partial) > 0:
+    if is_complete_pdf(partial):
         os.replace(partial, pdf)
     elif os.path.exists(partial):
         os.remove(partial)
     return pdf if os.path.exists(pdf) else None
+
+
+def is_complete_pdf(path: str) -> bool:
+    """True when path holds a complete PDF: %PDF header, %%EOF trailer."""
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) < 1000:
+            return False
+        with open(path, "rb") as fh:
+            head = fh.read(5)
+            fh.seek(max(0, os.path.getsize(path) - 1024), os.SEEK_SET)
+            tail = fh.read()
+    except OSError:
+        return False
+    return head.startswith(b"%PDF") and b"%%EOF" in tail

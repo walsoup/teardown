@@ -31,6 +31,15 @@ def load_plan(job_id):
         return None
     if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
         return None
+    if not isinstance(plan.get("device"), str):
+        return None
+    for step in plan["steps"]:
+        # The guide page indexes s["title"], s["t"], and s["image"]; a
+        # hand-edited plan.json missing those would 500 in the handler.
+        if not isinstance(step, dict):
+            return None
+        if not isinstance(step.get("title"), str) or not isinstance(step.get("t"), (int, float)):
+            return None
     return plan
 
 

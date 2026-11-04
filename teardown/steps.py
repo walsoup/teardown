@@ -224,6 +224,9 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
             claimed = float(raw["t"])
         except (TypeError, ValueError, KeyError):
             continue
+        import math
+        if math.isnan(claimed) or math.isinf(claimed):
+            continue
         claimed = min(max(claimed, 0.0), duration)
         anchor = _norm(str(raw.get("anchor_quote", "")))
         if chunks is not None:
@@ -233,11 +236,12 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
             if not hits:
                 continue
             claimed = min(hits, key=lambda found: (abs(found - claimed), found))
-        try:
-            title = str(raw["title"]).strip()
-            instruction = str(raw["instruction"]).strip()
-        except KeyError:
+        title = raw.get("title")
+        instruction = raw.get("instruction")
+        if title is None or instruction is None:
             continue
+        title = str(title).strip()
+        instruction = str(instruction).strip()
         if not title or not instruction:
             continue
         part = str(raw.get("part") or "").strip()
@@ -266,8 +270,10 @@ def parse_steps(text: str, duration: float, timed_transcript=None,
             }
         )
     steps.sort(key=lambda step: step["t"])
-    if chunks is not None and raw_steps and not steps:
-        raise ValueError("plan failed anchor verification: no step survived")
+    if not steps:
+        # An empty plan is not a plan: fail closed instead of marking the
+        # job done with 0 steps and settling the full spend.
+        raise ValueError("plan has no usable steps")
     coverage_warning = False
     if chunks and steps and duration - steps[-1]["t"] > window_s * 2:
         coverage_warning = True

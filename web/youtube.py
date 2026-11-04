@@ -8,16 +8,24 @@ Two routes, tried in order:
    instance with local=true, which rewrites the media URLs to proxy through
    the instance, download one video-only and one audio-only stream through
    it, and mux them locally with ffmpeg. No account, no cookies.
+
+   Both the instance directory and the instance's format list are third-party
+   data, so every URL we fetch is validated: https only, no credentials, DNS
+   must resolve to public IPs only, redirects are followed manually with each
+   hop re-validated, and byte/time caps are enforced before and during the
+   fetch. Nothing fetched this way may reach a private or local address.
 2. yt-dlp direct. Kept for self-hosters on residential connections; on a
    datacenter host YouTube bot-checks it and the failure is classified
    plainly from stderr.
 """
+import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import time
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 
@@ -26,7 +34,10 @@ from jobs import JOBS, set_stage
 
 VIDEO_CAP_BYTES = 140 * 1024 * 1024
 AUDIO_CAP_BYTES = 48 * 1024 * 1024
+INFO_CAP_BYTES = 4 * 1024 * 1024
 DL_DEADLINE_S = 600
+MAX_REDIRECTS = 4
+MAX_INSTANCE_ATTEMPTS = 3
 PRIMARY_INSTANCE = "https://yt.chocolatemoo53.com"
 INSTANCES_URL = "https://api.invidious.io/instances.json"
 
@@ -55,9 +66,93 @@ def _extract_video_id(url):
         return cand
     return None
 
+def _public_https(url):
+    """The URL if it is safe to fetch: https, no credentials, and every DNS
+    answer a public IP. Otherwise None. Guards the demo against a hostile or
+    compromised third-party response pointing fetches at local/internal
+    addresses."""
+    try:
+        p = urlparse(url or "")
+    except ValueError:
+        return None
+    if p.scheme != "https" or not p.hostname or p.username or p.password:
+        return None
+    host = p.hostname
+    try:
+        literal = ipaddress.ip_address(host.strip("[]"))
+        return url if literal.is_global else None
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, p.port or 443, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError):
+        return None
+    addrs = {info[4][0] for info in infos}
+    if not addrs:
+        return None
+    for raw in addrs:
+        try:
+            if not ipaddress.ip_address(raw).is_global:
+                return None
+        except ValueError:
+            return None
+    return url
+
+def _open_public(url, timeout, cap):
+    """GET with manual, re-validated redirect following (MAX_REDIRECTS hops).
+    Returns an open streamed response with a 200 and a body within cap, or
+    None. The caller closes the response."""
+    for _ in range(MAX_REDIRECTS + 1):
+        if not _public_https(url):
+            return None
+        try:
+            r = requests.get(url, stream=True, timeout=timeout,
+                             allow_redirects=False,
+                             headers={"User-Agent": "teardown-demo/1.0"})
+        except requests.RequestException:
+            return None
+        if r.is_redirect or r.is_permanent_redirect:
+            loc = r.headers.get("Location") or ""
+            r.close()
+            if not loc:
+                return None
+            url = urljoin(url, loc)
+            continue
+        if r.status_code != 200:
+            r.close()
+            return None
+        try:
+            total = int(r.headers.get("Content-Length") or 0)
+        except ValueError:
+            total = 0
+        if total > cap:
+            r.close()
+            return None
+        return r
+    return None
+
+def _json_public(url, timeout, cap):
+    """Bounded JSON body from a validated URL, or None."""
+    r = _open_public(url, timeout, cap)
+    if r is None:
+        return None
+    try:
+        chunks, got = [], 0
+        for chunk in r.iter_content(chunk_size=65536):
+            got += len(chunk)
+            if got > cap:
+                return None
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks))
+    except (ValueError, requests.RequestException):
+        return None
+    finally:
+        r.close()
+
 def _instances():
-    """Ordered instance list: env override, known-good primary, then the
-    public directory (cached 10 min). Best-effort; failures just shorten it."""
+    """Ordered, validated instance list: env override, known-good primary,
+    then the public directory (cached 10 min). Best-effort; failures just
+    shorten it."""
     out = []
     env = os.environ.get("TEARDOWN_INVIDIOUS", "")
     for raw in env.split(","):
@@ -73,7 +168,7 @@ def _instances():
             for host, meta in r.json():
                 if (isinstance(meta, dict) and meta.get("type") == "https"
                         and meta.get("api") and isinstance(host, str)
-                        and "." in host):
+                        and re.match(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", host)):
                     found.append(f"https://{host}")
             _instances_cache.update(at=now, list=found)
         except Exception:
@@ -81,10 +176,10 @@ def _instances():
     out.extend(_instances_cache["list"])
     seen, ordered = set(), []
     for base in out:
-        if base not in seen:
+        if base not in seen and _public_https(base):
             seen.add(base)
             ordered.append(base)
-    return ordered[:6]
+    return ordered
 
 def _pick_formats(adaptive, max_height=480):
     """Choose one video-only and one audio-only adaptive format.
@@ -129,37 +224,44 @@ def _pick_formats(adaptive, max_height=480):
         audio = sorted(audios, key=audio_rank)[0]
     return video, audio
 
+def _declared_size(fmt):
+    try:
+        return int(fmt.get("clen") or 0)
+    except (TypeError, ValueError):
+        return 0
+
 def _stream_to_file(job_id, url, dest, cap, pct_lo, pct_hi, label, deadline):
-    """Stream one media URL to disk with progress; False on any failure."""
+    """Stream one validated media URL to disk with progress; False on any
+    failure. The byte cap is enforced before the body starts (declared size)
+    and while streaming."""
+    r = _open_public(url, (10, 60), cap)
+    if r is None:
+        print(f"[yt fetch job {job_id[:8]}] {label}: refused/failed open", flush=True)
+        return False
     got = 0
     try:
-        with requests.get(url, stream=True, timeout=(10, 60)) as r:
-            if r.status_code != 200:
-                print(f"[yt fetch job {job_id[:8]}] {label}: HTTP {r.status_code}", flush=True)
-                return False
-            total = int(r.headers.get("Content-Length") or 0)
-            if total > cap:
-                print(f"[yt fetch job {job_id[:8]}] {label}: {total} bytes over cap", flush=True)
-                return False
-            with open(dest, "wb") as fh:
-                for chunk in r.iter_content(chunk_size=256 * 1024):
-                    if not chunk:
-                        continue
-                    fh.write(chunk)
-                    got += len(chunk)
-                    if got > cap or time.time() > deadline:
-                        print(f"[yt fetch job {job_id[:8]}] {label}: cap/deadline hit", flush=True)
-                        return False
-                    if total:
-                        frac = pct_lo + (pct_hi - pct_lo) * min(1.0, got / total)
-                        set_stage(job_id, "downloading the video", round(frac, 1),
-                                  f"{got // (1024*1024)} of {total // (1024*1024)} MB ({label})")
-                    else:
-                        set_stage(job_id, "downloading the video", None,
-                                  f"{got // (1024*1024)} MB ({label})")
+        total = int(r.headers.get("Content-Length") or 0)
+        with open(dest, "wb") as fh:
+            for chunk in r.iter_content(chunk_size=256 * 1024):
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                got += len(chunk)
+                if got > cap or time.time() > deadline:
+                    print(f"[yt fetch job {job_id[:8]}] {label}: cap/deadline hit", flush=True)
+                    return False
+                if total:
+                    frac = pct_lo + (pct_hi - pct_lo) * min(1.0, got / total)
+                    set_stage(job_id, "downloading the video", round(frac, 1),
+                              f"{got // (1024*1024)} of {total // (1024*1024)} MB ({label})")
+                else:
+                    set_stage(job_id, "downloading the video", None,
+                              f"{got // (1024*1024)} MB ({label})")
     except requests.RequestException as e:
         print(f"[yt fetch job {job_id[:8]}] {label}: {type(e).__name__} {e}", flush=True)
         return False
+    finally:
+        r.close()
     return got > 0
 
 def _ffmpeg_mux(vpart, apart, out, video_ok_copy, audio_ok_copy):
@@ -172,28 +274,20 @@ def _ffmpeg_mux(vpart, apart, out, video_ok_copy, audio_ok_copy):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=600)
 
 def _invidious_download(job_id, video_id, video_path):
-    """Try Invidious instances in order. True on success, False when the
+    """Try Invidious instances in order (at most MAX_INSTANCE_ATTEMPTS, to
+    stay polite to the volunteer network). True on success, False when the
     route is exhausted and the yt-dlp fallback should run."""
     deadline = time.time() + DL_DEADLINE_S
     last_note = ""
-    for base in _instances():
+    for base in _instances()[:MAX_INSTANCE_ATTEMPTS]:
         if time.time() > deadline:
             break
-        set_stage(job_id, "downloading the video", 2.0,
-                  f"resolving via {urlparse(base).hostname}")
-        try:
-            r = requests.get(f"{base}/api/v1/videos/{video_id}",
-                             params={"local": "true"}, timeout=20)
-        except requests.RequestException as e:
-            last_note = f"{base}: {type(e).__name__}"
-            continue
-        if r.status_code != 200:
-            last_note = f"{base}: HTTP {r.status_code}"
-            continue
-        try:
-            info = r.json()
-        except (ValueError, json.JSONDecodeError):
-            last_note = f"{base}: bad json"
+        host = urlparse(base).hostname
+        set_stage(job_id, "downloading the video", 2.0, f"resolving via {host}")
+        info = _json_public(f"{base}/api/v1/videos/{video_id}?local=true",
+                            20, INFO_CAP_BYTES)
+        if info is None:
+            last_note = f"{host}: no/bad response"
             continue
         if "error" in info:
             err = str(info.get("error")).lower()
@@ -204,7 +298,7 @@ def _invidious_download(job_id, video_id, video_path):
             if "live" in err or "premiere" in err:
                 return _fail(job_id, "that looks like a live stream or premiere - "
                                      "this demo works on finished videos")
-            last_note = f"{base}: {err[:120]}"
+            last_note = f"{host}: {err[:120]}"
             continue
         length = info.get("lengthSeconds") or 0
         if not length:
@@ -215,8 +309,11 @@ def _invidious_download(job_id, video_id, video_path):
                                  "this demo handles up to 20")
         vfmt, afmt = _pick_formats(info.get("adaptiveFormats"))
         if not vfmt or not afmt or not vfmt.get("url") or not afmt.get("url"):
-            last_note = f"{base}: no usable streams"
+            last_note = f"{host}: no usable streams"
             continue
+        if _declared_size(vfmt) > VIDEO_CAP_BYTES or _declared_size(afmt) > AUDIO_CAP_BYTES:
+            return _fail(job_id, "that video is over this demo's 140 MB download limit - "
+                                 "use a shorter or lower-quality clip")
         vpart, apart = video_path + ".vpart", video_path + ".apart"
         ok = (_stream_to_file(job_id, vfmt["url"], vpart, VIDEO_CAP_BYTES,
                               5.0, 75.0, "video", deadline)
@@ -243,7 +340,7 @@ def _invidious_download(job_id, video_id, video_path):
                     pass
         if ok:
             return True
-        last_note = f"{base}: stream fetch/mux failed"
+        last_note = f"{host}: stream fetch/mux failed"
     print(f"[invidious route exhausted job {job_id[:8]}] {last_note}", flush=True)
     return False
 
@@ -323,7 +420,7 @@ def _download(job_id, url, video_path):
     if video_id and _invidious_download(job_id, video_id, video_path):
         return True
     if JOBS.get(job_id, {}).get("status") == "error":
-        return False  # classified already (live stream, too long)
+        return False  # classified already (live stream, too long, unavailable)
     if not video_id:
         print(f"[yt job {job_id[:8]}] no video id in url, yt-dlp only", flush=True)
     return _ytdlp_download(job_id, url, video_path)

@@ -64,3 +64,25 @@ def test_pick_takes_non_avc1_when_only_option():
 def test_pick_empty():
     assert _pick_formats([]) == (None, None)
     assert _pick_formats(None) == (None, None)
+
+from youtube import _public_https  # noqa: E402
+
+def test_public_https_accepts_public_host():
+    assert _public_https("https://yt.chocolatemoo53.com/api/v1/videos/x")
+
+def test_public_https_rejects_non_https():
+    assert _public_https("http://example.com/x") is None
+
+def test_public_https_rejects_local_and_private():
+    assert _public_https("https://127.0.0.1/x") is None
+    assert _public_https("https://[::1]/x") is None
+    assert _public_https("https://10.0.0.5/x") is None
+    assert _public_https("https://192.168.1.1/x") is None
+    assert _public_https("https://169.254.169.254/latest") is None
+    assert _public_https("https://localhost/x") is None
+
+def test_public_https_rejects_userinfo_and_garbage():
+    assert _public_https("https://user:pass@example.com/x") is None
+    assert _public_https("") is None
+    assert _public_https(None) is None
+    assert _public_https("not a url") is None

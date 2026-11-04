@@ -718,3 +718,36 @@ def test_cli_missing_key_clean_message(capsys, monkeypatch):
     err = capsys.readouterr().err
     assert "MODEL_API_KEY is not set." in err
     assert "Traceback" not in err
+
+
+def test_webm_converts_to_playable_h264(tmp_path):
+    """webm uploads must become H.264/AAC mp4 for the guide player:
+    a stream-copy remux leaves VP9/Opus in the wrapper, which Chrome
+    refuses (MEDIA_ERR_SRC_NOT_SUPPORTED, verified in a real browser)."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg unavailable")
+    webm = tmp_path / "clip.webm"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", "testsrc=duration=2:size=160x120:rate=10",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+         "-c:v", "libvpx-vp9", "-c:a", "libopus", str(webm)],
+        check=True, capture_output=True, timeout=120,
+    )
+    from teardown.ingest import is_ebml, to_playable_mp4
+
+    assert is_ebml(str(webm))
+    out = to_playable_mp4(str(webm))
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name",
+         "-of", "csv=p=0", out],
+        check=True, capture_output=True, text=True, timeout=60,
+    ).stdout.split()
+    assert "h264" in probe and "aac" in probe
+    with open(out, "rb") as fh:
+        assert b"ftyp" in fh.read(12)

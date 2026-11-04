@@ -92,21 +92,21 @@ def run_job(job_id, video_path, url, ip):
         if not duration or duration > MAX_DURATION_S:
             raise ValueError(
                 f"that video is about {round(duration / 60)} minutes - this demo handles up to 20")
-        from teardown.ingest import is_ebml, looks_like_container, remux_to_mp4
+        from teardown.ingest import is_ebml, looks_like_container, to_playable_mp4
         if not looks_like_container(video_path):
             raise ValueError("that file is not an mp4, mov, or webm")
         if is_ebml(video_path):
             # Meta's files API rejects video/webm; the same streams in an mp4
             # wrapper are accepted, and a copy-remux costs seconds.
             set_stage(job_id, "converting the video for the model")
-            remuxed = remux_to_mp4(video_path)
-            # The guide page plays video.mp4, so swap the remuxed bytes in
-            # place instead of leaving a video.mp4.mp4 sidecar the page
-            # never references (and would serve EBML bytes as video/mp4).
+            converted = to_playable_mp4(video_path)
+            # The guide page plays video.mp4, so swap the converted bytes
+            # in place: a stream-copied remux keeps VP9/Opus inside the
+            # mp4 wrapper, which browsers refuse to play.
             try:
-                os.replace(remuxed, video_path)
+                os.replace(converted, video_path)
             except OSError:
-                video_path = remuxed
+                video_path = converted
         JOBS[job_id]["duration"] = duration
         if ACTIVE_LOCK.locked():
             set_stage(job_id, "waiting for another guide to finish",

@@ -55,6 +55,28 @@ def remux_to_mp4(path: str) -> str:
     return out_path
 
 
+def to_playable_mp4(path: str) -> str:
+    """Transcode a webm/mkv into an H.264/AAC mp4 (what browsers play).
+
+    remux_to_mp4 stream-copies, which leaves VP9/Opus streams inside the
+    mp4 wrapper: the Model API accepts that, but browsers refuse it
+    (verified: Chrome raises MEDIA_ERR_SRC_NOT_SUPPORTED even from a
+    blob URL). Returns the new path; the caller swaps it in. Falls back
+    to the stream-copy remux when no H.264 encoder is available.
+    """
+    out_path = path + ".h264.mp4"
+    try:
+        _run(
+            ["ffmpeg", "-y", *_PROTOCOL, "-v", "error", "-i", path,
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+             "-c:a", "aac", "-movflags", "+faststart", out_path],
+            timeout=3600,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return remux_to_mp4(path)
+    return out_path
+
+
 def looks_like_container(path: str) -> bool:
     """True for an ISO BMFF header (mp4/mov, `ftyp`) or an EBML header (webm/mkv)."""
     try:

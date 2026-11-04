@@ -242,10 +242,16 @@ def test_web_guards(tmp_path, monkeypatch):
     assert app.parse_byte_range("bytes=200-210", 100)[0] == "unsat"
     assert app.parse_byte_range(None, 0)[0] == "unsat"
 
-    token = app.csrf_token()
-    assert app.csrf_ok(token)
-    assert not app.csrf_ok("x" * len(token))
-    assert not app.csrf_ok(token[:-1])
+    sid, cookie = app.new_session_cookie()
+    stub = SimpleNamespace(headers={"Cookie": cookie.split(";", 1)[0]})
+    token = app.csrf_token(sid)
+    assert app.csrf_ok(stub, token)
+    assert not app.csrf_ok(stub, "x" * len(token))
+    assert not app.csrf_ok(stub, token[:-1])
+    other_sid, _ = app.new_session_cookie()
+    assert not app.csrf_ok(stub, app.csrf_token(other_sid))
+    anon = SimpleNamespace(headers={})
+    assert not app.csrf_ok(anon, token)
     script = app.json_for_script({"fasteners": "</script><img>"})
     assert "<" not in script
     assert "\\u003c" in script
@@ -293,7 +299,7 @@ def test_http_admission_and_traversal(monkeypatch):
 
     import handler
     import jobs
-    from http_util import csrf_token
+    from http_util import csrf_token, session_id
 
     jobs.JOBS.clear()
     jobs.RATE.clear()
@@ -315,7 +321,8 @@ def test_http_admission_and_traversal(monkeypatch):
             conn.close()
             return result
 
-        status, _location, headers, body = request("GET", "/")
+        status, _location, home_headers, body = request("GET", "/")
+        headers = home_headers
         assert status == 200
         text = body.decode()
         assert "__CSRF__" not in text
@@ -324,7 +331,10 @@ def test_http_admission_and_traversal(monkeypatch):
         assert "frame-ancestors 'none'" in headers.get("Content-Security-Policy", "")
         assert request("HEAD", "/")[0] == 200
 
-        token = csrf_token()
+        session_pair = home_headers.get("Set-Cookie", "").split(";", 1)[0]
+        sid = session_id(session_pair)
+        assert sid
+        token = csrf_token(sid)
         boundary = "----tdboundary"
         bad = (
             f"--{boundary}\r\n"
@@ -341,6 +351,7 @@ def test_http_admission_and_traversal(monkeypatch):
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Origin": f"http://127.0.0.1:{port}",
             "Host": f"127.0.0.1:{port}",
+            "Cookie": session_pair,
         }
 
         def post(payload, extra=None):

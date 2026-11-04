@@ -1,5 +1,6 @@
 """Cookies, CSRF, path checks, and request metadata."""
 import hashlib
+import secrets
 import hmac
 import json
 import os
@@ -40,8 +41,36 @@ def youtube_url_ok(url):
     parsed = urlparse(url or "")
     return (parsed.scheme == "https" and parsed.hostname in YOUTUBE_HOSTS
             and not parsed.username and not parsed.password)
-def csrf_token():
-    return hmac.new(COOKIE_KEY, b"teardown-csrf-v1", hashlib.sha256).hexdigest()
+def new_session_cookie():
+    """A fresh session id and its signed Set-Cookie value. The CSRF token is
+    bound to this cookie, so a token read cross-site (or replayed from an
+    attacker's own visit) is useless in a victim's browser: SameSite=Lax
+    keeps the cookie off cross-site POSTs, and without it the token check
+    fails closed."""
+    sid = secrets.token_hex(16)
+    sig = hmac.new(COOKIE_KEY, ("td-s|" + sid).encode(), hashlib.sha256).hexdigest()[:32]
+    flags = "Path=/; Max-Age=86400; HttpOnly; SameSite=Lax"
+    host = os.environ.get("HOST", "127.0.0.1")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        flags += "; Secure"
+    return sid, f"td_s={sid}.{sig}; {flags}"
+
+def session_id(header):
+    """The validated session id from a Cookie header, or None."""
+    for part in (header or "").split(";"):
+        part = part.strip()
+        if part.startswith("td_s="):
+            segs = part[5:].split(".")
+            if (len(segs) == 2 and re.fullmatch(r"[0-9a-f]{32}", segs[0])):
+                expected = hmac.new(COOKIE_KEY, ("td-s|" + segs[0]).encode(),
+                                    hashlib.sha256).hexdigest()[:32]
+                if hmac.compare_digest(expected, segs[1]):
+                    return segs[0]
+    return None
+
+def csrf_token(sid):
+    return hmac.new(COOKIE_KEY, ("teardown-csrf-v1|" + (sid or "")).encode(),
+                    hashlib.sha256).hexdigest()
 
 
 def redact(msg):
@@ -145,8 +174,11 @@ def origin_ok(handler):
     return handler.client_address[0] in ("127.0.0.1", "::1")
 
 
-def csrf_ok(header_value, form_value=""):
-    expected = csrf_token()
+def csrf_ok(handler, header_value, form_value=""):
+    sid = session_id(handler.headers.get("Cookie"))
+    if not sid:
+        return False
+    expected = csrf_token(sid)
     supplied = header_value or form_value or ""
     if len(supplied) != len(expected):
         return False

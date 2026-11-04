@@ -18,6 +18,8 @@ from http_util import (
     cookie_header,
     csrf_ok,
     csrf_token,
+    new_session_cookie,
+    session_id,
     json_for_script,
     origin_ok,
     parse_byte_range,
@@ -145,11 +147,17 @@ class H(BaseHTTPRequestHandler):
                             "submitted footage to train its models.")
             else:
                 training = ("Uploads are sent to Meta for transcription, planning, and segmentation.")
+            sid = session_id(self.headers.get("Cookie"))
+            extra = None
+            if not sid:
+                sid, cookie = new_session_cookie()
+                extra = {"Set-Cookie": cookie}
             self._send(INDEX.replace("__CSS__", CSS + CSS_EXTRA).replace("__REFRESH__", "")
                        .replace("__ERROR__", err_html)
                        .replace("__JOBS__", cards)
-                       .replace("__CSRF__", html_mod.escape(csrf_token()))
-                       .replace("__TRAINING__", html_mod.escape(training)))
+                       .replace("__CSRF__", html_mod.escape(csrf_token(sid)))
+                       .replace("__TRAINING__", html_mod.escape(training)),
+                       extra=extra)
             return
         ms = re.match(r"^/jobs/([\w-]+)/status\.json$", u.path)
         if ms:
@@ -501,7 +509,7 @@ class H(BaseHTTPRequestHandler):
                     return
                 if os.path.exists(tmp):
                     os.remove(tmp)
-            if not csrf_ok(self.headers.get("X-TD-CSRF"), form_csrf):
+            if not csrf_ok(self, self.headers.get("X-TD-CSRF"), form_csrf):
                 self._drop_job(job, directory)
                 self._redirect("the form token did not match - reload the page and try again")
                 return

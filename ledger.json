@@ -2,7 +2,7 @@
  "cap_usd": 20.0,
  "spent_usd": 0.736541,
  "reserved": {
-  "856f48b3bfc645a7800ded76e9c7781b": 0.566502
+  "856f48b3bfc645a7800ded76e9c7781b": 0.566503
  },
  "history": [
   {
@@ -82,6 +82,6 @@
   }
  ],
  "reserved_at": {
-  "856f48b3bfc645a7800ded76e9c7781b": 1793759032
+  "856f48b3bfc645a7800ded76e9c7781b": 1793759419
  }
 }

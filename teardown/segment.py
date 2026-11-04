@@ -10,10 +10,37 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import time
 
 import numpy as np
 
 from .meta_api import MetaApi
+
+# A weak or speck-sized mask is treated as no match. Fail-closed means an
+# empty record list AND a mask that is too unsure or too small to draw.
+MIN_CONFIDENCE = 0.35
+MIN_FOREGROUND = 48
+
+
+def evaluate_mask(raster: np.ndarray, bounds: tuple[int, int, int, int],
+                  confidence: float | None, min_confidence: float = MIN_CONFIDENCE,
+                  min_foreground: int = MIN_FOREGROUND) -> bool:
+    """True when a decoded mask is safe to draw.
+
+    The raster must be the same size as the box, must contain real foreground,
+    and must clear the confidence floor. A null confidence is a miss.
+    """
+    if confidence is None or float(confidence) < min_confidence:
+        return False
+    left, top, right, bottom = (int(v) for v in bounds)
+    height, width = bottom - top, right - left
+    if height <= 0 or width <= 0:
+        return False
+    if raster.ndim < 2 or raster.shape[0] != height or raster.shape[1] != width:
+        return False
+    if raster.size == 0 or int(raster.max()) == 0:
+        return False
+    return int((raster > 0).sum()) >= min_foreground
 
 
 def segment_part(api: MetaApi, frame_png: str, part: str, allow_retry: bool = False) -> dict | None:
@@ -27,7 +54,23 @@ def segment_part(api: MetaApi, frame_png: str, part: str, allow_retry: bool = Fa
     retried=True with prompt set to the simplified noun actually used, so a
     weaker or looser match is never silently presented as the original part.
     """
-    hit = _segment_once(api, frame_png, part)
+    hit = None
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            hit = _segment_once(api, frame_png, part)
+            last_err = None
+            break
+        except Exception as exc:
+            if exc.__class__.__name__ == "BudgetExhausted":
+                raise
+            last_err = exc
+            if attempt == 0:
+                time.sleep(0.4)
+    if last_err is not None:
+        # A thrown SAM error is a miss, same as zero matches: the caller keeps
+        # the clean frame instead of a blank step.
+        return None
     # Fail closed: a loose-noun retry too often lands on the wrong instance of
     # the noun (a table cable for "display cable"), and a confident wrong
     # highlight misleads more than no highlight. Retry stays available for
@@ -61,21 +104,33 @@ def _segment_once(api: MetaApi, frame_png: str, part: str) -> dict | None:
 
     from meta_sam_parser import decode_mask_to_raster
 
-    def conf(record) -> float:
-        return record.confidence if record.confidence is not None else 0.0
-
-    best = max(masks, key=conf)
-    raster = np.frombuffer(
-        decode_mask_to_raster(best.mask), dtype=np.uint8
-    ).reshape(best.mask.height, best.mask.width)
-    b = best.bounds
-    return {
-        "bounds": (int(b.left), int(b.top), int(b.right), int(b.bottom)),
-        "mask": raster,
-        "confidence": conf(best),
-        "prompt": part,
-        "retried": False,
-    }
+    accepted = []
+    for record in masks:
+        confidence = float(record.confidence) if record.confidence is not None else None
+        try:
+            raster = np.frombuffer(
+                decode_mask_to_raster(record.mask), dtype=np.uint8
+            ).reshape(record.mask.height, record.mask.width)
+        except Exception:
+            continue
+        bounds = record.bounds
+        box = (int(bounds.left), int(bounds.top), int(bounds.right), int(bounds.bottom))
+        if not evaluate_mask(raster, box, confidence):
+            continue
+        accepted.append({
+            "bounds": box,
+            "mask": raster,
+            "confidence": confidence,
+            "prompt": part,
+            "retried": False,
+            "area": int((raster > 0).sum()),
+        })
+    if not accepted:
+        return None
+    accepted.sort(key=lambda item: (item["confidence"], item["area"]), reverse=True)
+    best = dict(accepted[0])
+    best["instances"] = accepted
+    return best
 
 
 async def _parse(events):

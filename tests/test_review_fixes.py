@@ -61,7 +61,6 @@ def test_clamped_out_of_range_t_still_verifiable():
         {"t": 9999, "anchor_quote": "remove the battery", "part": "battery",
          "title": "Remove battery", "instruction": "lift"}
     ]), timed_transcript=tt, duration=95)
-    # clamped to duration, and the anchor verifies against the t=90 window
-    # within the +/-30s near window, so the step survives at t=95
+    # The quote lives in the t=90 window, so the step snaps there.
     assert len(plan["steps"]) == 1
-    assert plan["steps"][0]["t"] == 95
+    assert plan["steps"][0]["t"] == 90.0

@@ -3,3 +3,6 @@ __pycache__/
 .env
 output/
 *.wav
+data/
+web/data/
+*.mp4

@@ -4,8 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def downloader(lines, monkeypatch, tmp_path):
-    source = Path('web/app.py').read_text()
+    source = (ROOT / "web" / "youtube.py").read_text()
     node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == '_download')
     captured = []
     proc = SimpleNamespace(stdout=iter(lines), returncode=1, wait=lambda **k: None, kill=lambda: None)
@@ -20,6 +23,8 @@ def downloader(lines, monkeypatch, tmp_path):
 def test_plain_403_does_not_claim_confirmed_ip_ban(monkeypatch, tmp_path):
     error, cmd = downloader(['ERROR: HTTP Error 403: Forbidden'], monkeypatch, tmp_path)
     assert 'cause is not confirmed' in error
+    assert "--ignore-config" in cmd
+    assert cmd[cmd.index("--use-extractors") + 1] == "youtube*"
     assert cmd[cmd.index('--js-runtimes')+1] == 'deno'
     for option in ['--retries', '--extractor-retries', '--fragment-retries']:
         assert cmd[cmd.index(option)+1] == '0'

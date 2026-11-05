@@ -2,7 +2,9 @@
 
 Upload a video of someone disassembling a device (an iMac, a phone, whatever) and get back a step-by-step visual repair guide - a clean keyframe per step, every part outlined and labeled, in the style of an iFixit guide.
 
-Being built for the Meta Global AI Developer Hackathon (Oct 27 - Nov 4, 2026, Indie track).
+**Live demo:** [https://teardown-0k03.onrender.com/](https://teardown-0k03.onrender.com/). Paste a public YouTube link or drop an mp4 or mov (narration required). No local setup. That server uses Meta's contributor model, so only send footage you have the right to share, and guides there auto-delete after 3 hours.
+
+Built for the Meta Global AI Developer Hackathon (Oct 27 - Nov 4, 2026, Indie track).
 
 ## How it works
 
@@ -62,7 +64,9 @@ Small-sample results from development runs; treat as orientation, not benchmarks
 
 ## Web app
 
-`python web/app.py` serves the pipeline as a small site: upload an mp4 or paste a
+The same site is already running at [https://teardown-0k03.onrender.com/](https://teardown-0k03.onrender.com/): paste a public YouTube link or upload an mp4 or mov there.
+
+`python web/app.py` serves the pipeline locally as a small site: upload an mp4 or paste a
 YouTube link, watch it process, then read the guide with per-step timestamps
 that seek the video, plus a print-PDF export. The HTTP server is the standard
 library. Transcription, planning, and segmentation use the packages in
@@ -106,8 +110,8 @@ that looks finished. Small parts and low-resolution frames remain the weak spot.
 
 `demo/backup/` is an offline `--mock` guide rendered from a local clip, so the
 page can be opened with no API key. It is not a recording of a live model run.
-A live demo still needs a narrated mp4 on disk: YouTube can answer 403 from a
-datacenter address, and the upload page says so.
+The hosted demo accepts a public YouTube link or an uploaded file. If YouTube
+blocks the server, the job page says so and a file upload is the fallback.
 
 The web app answers HTTP Range requests with 206 so the guide player can seek.
 
